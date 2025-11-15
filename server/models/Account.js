@@ -7,9 +7,9 @@ const accountSchema = new mongoose.Schema({
   role: { type: String, enum: ['Manager', 'Staff', 'Customer'], required: true },
   
   // Reference fields - only one should be populated based on role
-  manager_id: { type: Number, sparse: true },
-  staff_id: { type: Number, sparse: true },
-  customer_id: { type: Number, sparse: true },
+  manager_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', sparse: true },
+  staff_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', sparse: true },
+  customer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', sparse: true },
   
   is_active: { type: Boolean, default: true },
 }, { timestamps: true });

@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 
 const lessonSchema = new mongoose.Schema({
   lesson_id: { type: Number, unique: true, required: true },
-  assignment_id: Number, // Link to StaffCustomerAssignment
   customer_id: Number,
   staff_id: Number,
   vehicle_id: Number,

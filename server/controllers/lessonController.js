@@ -1,8 +1,11 @@
-import Lesson from '../models/Lesson.js';
-import Customer from '../models/Customer.js';
+import { ObjectId } from 'mongodb';
+import { getDB } from '../db.js';
+import ChatRoom from '../models/ChatRoom.js';
+import Account from '../models/Account.js';
 import Staff from '../models/Staff.js';
-import StaffCustomerAssignment from '../models/StaffCustomerAssignment.js';
-import Address from '../models/Address.js';
+import Customer from '../models/Customer.js';
+
+const getCollection = (name) => getDB().collection(name);
 
 export const getAll = async (req, res) => {
   try {
@@ -11,17 +14,14 @@ export const getAll = async (req, res) => {
 
     if (role === 'customer') {
       // Customer sees only their own lessons
-      // Look up customer by Account username, not email_address
-      const Account = (await import('../models/Account.js')).default;
-      const account = await Account.findOne({ username, role: 'Customer' });
+      const account = await getCollection('Account').findOne({ username, role: 'Customer' });
       if (!account || !account.customer_id) {
         return res.json([]);
       }
       query.customer_id = account.customer_id;
     } else if (role === 'instructor' || role === 'staff') {
-      // Instructor sees only their own lessons
-      // For staff, username is actually their nickname/username from Account table
-      const staffRecord = await Staff.findOne({ nickname: username });
+      // Instructor/Staff sees only lessons they teach
+      const staffRecord = await getCollection('Staff').findOne({ nickname: username });
       if (!staffRecord) {
         return res.json([]);
       }
@@ -29,116 +29,8 @@ export const getAll = async (req, res) => {
     }
     // Admin and Manager see all lessons (no filter)
 
-    const data = await Lesson.find(query)
-      .populate('customer', 'first_name last_name email_address phone_number')
-      .populate('staff', 'first_name last_name nickname')
-      .populate('vehicle', 'vehicle_details');
+    const data = await getCollection('Lessons').find(query).toArray();
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// ✅ NEW: Get staff with their assigned customers (group by staff)
-export const getStaffWithAssignedCustomers = async (req, res) => {
-  try {
-    // Get all active assignments
-    const assignments = await StaffCustomerAssignment.find({ is_active: true });
-
-    // Group by staff_id
-    const staffGroups = {};
-    for (const assignment of assignments) {
-      if (!staffGroups[assignment.staff_id]) {
-        staffGroups[assignment.staff_id] = [];
-      }
-      staffGroups[assignment.staff_id].push(assignment);
-    }
-
-    // Enrich each group with staff and customer details
-    const staffWithCustomers = await Promise.all(
-      Object.entries(staffGroups).map(async ([staff_id, staffAssignments]) => {
-        const staff = await Staff.findOne({ staff_id: parseInt(staff_id) });
-        
-        const customers = await Promise.all(
-          staffAssignments.map(async (assignment) => {
-            const customer = await Customer.findOne({ customer_id: assignment.customer_id });
-            const address = await Address.findOne({ address_id: assignment.address_id });
-            
-            return {
-              assignment_id: assignment.assignment_id,
-              customer_id: assignment.customer_id,
-              first_name: customer?.first_name,
-              last_name: customer?.last_name,
-              email_address: customer?.email_address,
-              phone_number: customer?.phone_number,
-              address_id: assignment.address_id,
-              address: address ? `${address.line_1_number_building}, ${address.city}` : 'Unknown'
-            };
-          })
-        );
-
-        return {
-          staff_id: parseInt(staff_id),
-          staff_name: `${staff?.first_name} ${staff?.last_name}`,
-          email_address: staff?.email_address,
-          phone_number: staff?.phone_number,
-          total_customers: customers.length,
-          customers: customers
-        };
-      })
-    );
-
-    // Sort by staff name
-    staffWithCustomers.sort((a, b) => a.staff_name.localeCompare(b.staff_name));
-
-    res.json({
-      total_staff: staffWithCustomers.length,
-      staff_groups: staffWithCustomers
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Get assignments for lesson creation (legacy - kept for backwards compatibility)
-export const getAssignmentsForLessonCreation = async (req, res) => {
-  try {
-    // Get all active assignments with enriched data
-    const assignments = await StaffCustomerAssignment.find({ is_active: true });
-
-    const enrichedAssignments = await Promise.all(
-      assignments.map(async (assignment) => {
-        const staff = await Staff.findOne({ staff_id: assignment.staff_id });
-        const address = await Address.findOne({ address_id: assignment.address_id });
-        
-        const customers = await Promise.all(
-          [assignment.customer_id].map(async (customer_id) => {
-            const customer = await Customer.findOne({ customer_id });
-            return {
-              customer_id,
-              first_name: customer?.first_name,
-              last_name: customer?.last_name
-            };
-          })
-        );
-
-        return {
-          assignment_id: assignment.assignment_id,
-          staff_id: assignment.staff_id,
-          staff_name: `${staff?.first_name} ${staff?.last_name}`,
-          customer_id: assignment.customer_id,
-          customer_name: customers[0]?.first_name + ' ' + customers[0]?.last_name,
-          address_id: assignment.address_id,
-          address: address ? `${address.line_1_number_building}, ${address.city}` : 'Unknown',
-          assigned_date: assignment.assigned_date
-        };
-      })
-    );
-
-    res.json({
-      total_assignments: enrichedAssignments.length,
-      assignments: enrichedAssignments
-    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -146,11 +38,24 @@ export const getAssignmentsForLessonCreation = async (req, res) => {
 
 export const getById = async (req, res) => {
   try {
-    const data = await Lesson.findById(req.params.id)
-      .populate('customer', 'first_name last_name email_address phone_number')
-      .populate('staff', 'first_name last_name nickname')
-      .populate('vehicle', 'vehicle_details');
+    const { role, username } = req.user;
+    const data = await getCollection('Lessons').findOne({ _id: new ObjectId(req.params.id) });
+    
     if (!data) return res.status(404).json({ error: 'Not found' });
+
+    // Check permissions
+    if (role === 'customer') {
+      const account = await getCollection('Account').findOne({ username, role: 'Customer' });
+      if (!account || data.customer_id !== account.customer_id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    } else if (role === 'instructor' || role === 'staff') {
+      const staffRecord = await getCollection('Staff').findOne({ nickname: username });
+      if (!staffRecord || data.staff_id !== staffRecord.staff_id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -159,76 +64,58 @@ export const getById = async (req, res) => {
 
 export const create = async (req, res) => {
   try {
-    const { assignment_id, vehicle_id, lesson_date, lesson_time, lesson_duration, lesson_status_code, price } = req.body;
-
-    // Validate required fields
-    if (!assignment_id) {
-      return res.status(400).json({ error: 'assignment_id is required' });
+    const result = await getCollection('Lessons').insertOne(req.body);
+    
+    // Update customer's amount_outstanding if lesson has a price
+    if (req.body.price && req.body.customer_id) {
+      await getCollection('Customers').updateOne(
+        { customer_id: req.body.customer_id },
+        { $inc: { amount_outstanding: req.body.price } }
+      );
     }
-
-    // Get the assignment to validate it exists and is active
-    const assignment = await StaffCustomerAssignment.findOne({
-      assignment_id,
-      is_active: true
-    });
-
-    if (!assignment) {
-      return res.status(400).json({ error: 'Assignment not found or is inactive' });
+    
+    // Create chat room between staff and customer if it doesn't exist
+    if (req.body.staff_id && req.body.customer_id) {
+      try {
+        // Get staff and customer accounts
+        const staffAccount = await Account.findOne({ staff_id: req.body.staff_id });
+        const customerAccount = await Account.findOne({ customer_id: req.body.customer_id });
+        
+        if (staffAccount && customerAccount) {
+          const room_id = `${staffAccount.username}_${customerAccount.username}`;
+          
+          // Check if room already exists
+          const existingRoom = await ChatRoom.findOne({ room_id });
+          
+          if (!existingRoom) {
+            // Get staff and customer details
+            const staff = await Staff.findOne({ staff_id: req.body.staff_id });
+            const customer = await Customer.findOne({ customer_id: req.body.customer_id });
+            
+            if (staff && customer) {
+              // Create chat room
+              const chatRoom = new ChatRoom({
+                room_id,
+                staff_id: staff.staff_id,
+                customer_id: customer.customer_id,
+                staff_username: staffAccount.username,
+                customer_username: customerAccount.username,
+                staff_name: `${staff.first_name} ${staff.last_name}`,
+                customer_name: `${customer.first_name} ${customer.last_name}`
+              });
+              
+              await chatRoom.save();
+              console.log(`Chat room created for staff ${staff.staff_id} and customer ${customer.customer_id}`);
+            }
+          }
+        }
+      } catch (chatError) {
+        // Log error but don't fail the lesson creation
+        console.error('Error creating chat room:', chatError);
+      }
     }
-
-    // ✅ Automatically ensure assignment exists (create if not)
-    const existingAssignment = await StaffCustomerAssignment.findOne({
-      staff_id: assignment.staff_id,
-      customer_id: assignment.customer_id,
-      is_active: true
-    });
-
-    if (!existingAssignment) {
-      // Create assignment automatically
-      const lastAssignment = await StaffCustomerAssignment.findOne().sort({ assignment_id: -1 });
-      const nextAssignmentId = (lastAssignment?.assignment_id || 0) + 1;
-      
-      await StaffCustomerAssignment.create({
-        assignment_id: nextAssignmentId,
-        staff_id: assignment.staff_id,
-        customer_id: assignment.customer_id,
-        address_id: assignment.address_id || 1,
-        is_active: true,
-        assigned_date: new Date(),
-        notes: 'Auto-created from lesson'
-      });
-    }
-
-    // Get next lesson_id
-    const lastLesson = await Lesson.findOne().sort({ lesson_id: -1 });
-    const nextLessonId = (lastLesson?.lesson_id || 0) + 1;
-
-    // Create lesson with assignment details
-    const lessonData = {
-      lesson_id: nextLessonId,
-      assignment_id: assignment.assignment_id,
-      staff_id: assignment.staff_id,
-      customer_id: assignment.customer_id,
-      vehicle_id: vehicle_id || null,
-      lesson_date: lesson_date || new Date().toISOString().split('T')[0],
-      lesson_time: lesson_time || '',
-      lesson_duration: lesson_duration || '',
-      lesson_status_code: lesson_status_code || 'Scheduled',
-      price: price || 0
-    };
-
-    const data = await Lesson.create(lessonData);
-
-    // Populate after creation
-    const populated = await Lesson.findById(data._id)
-      .populate('customer', 'first_name last_name email_address phone_number')
-      .populate('staff', 'first_name last_name nickname')
-      .populate('vehicle', 'vehicle_details');
-
-    res.status(201).json({
-      message: 'Lesson created successfully from assignment',
-      lesson: populated
-    });
+    
+    res.status(201).json({ _id: result.insertedId, ...req.body });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -236,12 +123,16 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
-    const data = await Lesson.findByIdAndUpdate(req.params.id, req.body, { new: true })
-      .populate('customer', 'first_name last_name email_address phone_number')
-      .populate('staff', 'first_name last_name nickname')
-      .populate('vehicle', 'vehicle_details');
-    if (!data) return res.status(404).json({ error: 'Not found' });
-    res.json(data);
+    const { _id, ...updateData } = req.body;
+    
+    const result = await getCollection('Lessons').findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -249,10 +140,153 @@ export const update = async (req, res) => {
 
 export const delete_ = async (req, res) => {
   try {
-    const data = await Lesson.findByIdAndDelete(req.params.id);
-    if (!data) return res.status(404).json({ error: 'Not found' });
-    res.json({ message: 'Deleted successfully' });
+    // Get the lesson first to retrieve price and customer_id
+    const lesson = await getCollection('Lessons').findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!lesson) return res.status(404).json({ error: 'Not found' });
+    
+    const result = await getCollection('Lessons').deleteOne({ _id: new ObjectId(req.params.id) });
+    
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Not found' });
+    
+    // Update customer's amount_outstanding by subtracting the lesson price
+    if (lesson.price && lesson.customer_id) {
+      await getCollection('Customers').updateOne(
+        { customer_id: lesson.customer_id },
+        { $inc: { amount_outstanding: -lesson.price } }
+      );
+    }
+    
+    res.json({ message: 'Lesson deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const getAvailableInstructors = async (req, res) => {
+  try {
+    const { customer_id } = req.params;
+    
+    // Get customer's address
+    const customer = await getCollection('Customers').findOne({ customer_id: parseInt(customer_id) });
+    
+    if (!customer || !customer.customer_address_id) {
+      return res.json([]);
+    }
+    
+    const customerAddress = await getCollection('Adresses').findOne({ address_id: customer.customer_address_id });
+    
+    if (!customerAddress || !customerAddress.city) {
+      return res.json([]);
+    }
+    
+    // Get all staff in the same city
+    const staffInSameCity = await getCollection('Staff').aggregate([
+      {
+        $lookup: {
+          from: 'Adresses',
+          localField: 'staff_address_id',
+          foreignField: 'address_id',
+          as: 'address'
+        }
+      },
+      { $unwind: { path: '$address', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          'address.city': customerAddress.city,
+          position_title: { $in: ['Instructor', 'instructor'] } // Filter only instructors
+        }
+      },
+      {
+        $project: {
+          staff_id: 1,
+          nickname: 1,
+          first_name: 1,
+          last_name: 1,
+          email_address: 1,
+          phone_number: 1,
+          position_title: 1,
+          'address.city': 1
+        }
+      }
+    ]).toArray();
+    
+    res.json(staffInSameCity);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getStaffWithAssignedCustomers = async (req, res) => {
+  try {
+    // Get all staff with their lessons and group by staff to find assigned customers
+    const staffWithCustomers = await getCollection('Lessons').aggregate([
+      {
+        $group: {
+          _id: '$staff_id',
+          customer_ids: { $addToSet: '$customer_id' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'Staff',
+          localField: '_id',
+          foreignField: 'staff_id',
+          as: 'staff'
+        }
+      },
+      { $unwind: '$staff' },
+      {
+        $lookup: {
+          from: 'Customers',
+          localField: 'customer_ids',
+          foreignField: 'customer_id',
+          as: 'customers'
+        }
+      },
+      {
+        $project: {
+          _id: '$_id',
+          staff: '$staff',
+          customers: '$customers'
+        }
+      }
+    ]).toArray();
+
+    res.json(staffWithCustomers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getAssignmentsForLessonCreation = async (req, res) => {
+  try {
+    // Get all staff and customers for lesson creation
+    // Since we no longer use assignments, return all possible combinations
+    const staff = await getCollection('Staff').find({ 
+      position_title: { $in: ['Instructor', 'instructor'] } 
+    }).toArray();
+    
+    const customers = await getCollection('Customers').find({}).toArray();
+
+    // Return staff and customers separately for frontend to handle
+    res.json({
+      staff: staff.map(s => ({
+        staff_id: s.staff_id,
+        nickname: s.nickname,
+        first_name: s.first_name,
+        last_name: s.last_name
+      })),
+      customers: customers.map(c => ({
+        customer_id: c.customer_id,
+        first_name: c.first_name,
+        last_name: c.last_name,
+        email_address: c.email_address
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+

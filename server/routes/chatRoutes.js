@@ -4,7 +4,7 @@ import Message from '../models/Message.js';
 import Account from '../models/Account.js';
 import Staff from '../models/Staff.js';
 import Customer from '../models/Customer.js';
-import StaffCustomerAssignment from '../models/StaffCustomerAssignment.js';
+import Lesson from '../models/Lesson.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -12,15 +12,7 @@ const router = express.Router();
 // Apply authentication to all chat routes
 router.use(authenticate);
 
-/**
- * Chat Routes
- * REST API endpoints for chat functionality
- */
-
-/**
- * GET /api/chat/rooms/all
- * Get all chat rooms (admin/manager only)
- */
+// Get all chat rooms (admin/manager only)
 router.get('/rooms/all', async (req, res) => {
   try {
     const userRole = req.user?.role || req.headers['x-user-role'];
@@ -52,10 +44,7 @@ router.get('/rooms/all', async (req, res) => {
   }
 });
 
-/**
- * GET /api/chat/rooms
- * Get all chat rooms for the authenticated user
- */
+// Get chat rooms for a user
 router.get('/rooms', async (req, res) => {
   try {
     const { username } = req.query;
@@ -113,10 +102,7 @@ router.get('/rooms', async (req, res) => {
   }
 });
 
-/**
- * GET /api/chat/:room_id/messages
- * Get chat history for a specific room
- */
+// Get messages for a chat room
 router.get('/:room_id/messages', async (req, res) => {
   try {
     const { room_id } = req.params;
@@ -166,11 +152,7 @@ router.get('/:room_id/messages', async (req, res) => {
   }
 });
 
-/**
- * POST /api/chat/rooms/create-or-get
- * Create a new chat room or get existing one
- * This is called when staff/customer want to start a conversation
- */
+// Create or get a chat room
 router.post('/rooms/create-or-get', async (req, res) => {
   try {
     const { staff_username, customer_username } = req.body;
@@ -202,6 +184,16 @@ router.post('/rooms/create-or-get', async (req, res) => {
       return res.status(404).json({ error: 'Staff or customer details not found' });
     }
 
+    // Verify that they have lessons together
+    const lesson = await Lesson.findOne({ 
+      staff_id: staff.staff_id, 
+      customer_id: customer.customer_id 
+    });
+
+    if (!lesson) {
+      return res.status(403).json({ error: 'Chat rooms can only be created between staff and customers who have lessons together' });
+    }
+
     // Create new chat room
     chatRoom = new ChatRoom({
       room_id,
@@ -222,23 +214,28 @@ router.post('/rooms/create-or-get', async (req, res) => {
   }
 });
 
-/**
- * POST /api/chat/rooms/sync-assignments
- * Synchronize chat rooms with staff-customer assignments
- * Creates chat rooms for all existing assignments
- */
-router.post('/rooms/sync-assignments', async (req, res) => {
+// Sync chat rooms with lessons
+router.post('/rooms/sync-lessons', async (req, res) => {
   try {
-    // Get all staff-customer assignments
-    const assignments = await StaffCustomerAssignment.find({});
+    // Get all unique staff-customer pairs from lessons
+    const lessons = await Lesson.aggregate([
+      {
+        $group: {
+          _id: {
+            staff_id: '$staff_id',
+            customer_id: '$customer_id'
+          }
+        }
+      }
+    ]);
 
     let created = 0;
     let existing = 0;
 
-    for (const assignment of assignments) {
+    for (const lesson of lessons) {
       // Get staff and customer accounts
-      const staffAccount = await Account.findOne({ staff_id: assignment.staff_id });
-      const customerAccount = await Account.findOne({ customer_id: assignment.customer_id });
+      const staffAccount = await Account.findOne({ staff_id: lesson._id.staff_id });
+      const customerAccount = await Account.findOne({ customer_id: lesson._id.customer_id });
 
       if (!staffAccount || !customerAccount) continue;
 
@@ -252,8 +249,8 @@ router.post('/rooms/sync-assignments', async (req, res) => {
       }
 
       // Get staff and customer details
-      const staff = await Staff.findOne({ staff_id: assignment.staff_id });
-      const customer = await Customer.findOne({ customer_id: assignment.customer_id });
+      const staff = await Staff.findOne({ staff_id: lesson._id.staff_id });
+      const customer = await Customer.findOne({ customer_id: lesson._id.customer_id });
 
       if (!staff || !customer) continue;
 
@@ -273,22 +270,18 @@ router.post('/rooms/sync-assignments', async (req, res) => {
     }
 
     res.json({
-      message: 'Chat rooms synchronized with assignments',
+      message: 'Chat rooms synchronized with lessons',
       created,
       existing,
-      total: assignments.length
+      total: lessons.length
     });
   } catch (error) {
-    console.error('Sync assignments error:', error);
+    console.error('Sync lessons error:', error);
     res.status(500).json({ error: 'Failed to sync chat rooms' });
   }
 });
 
-/**
- * DELETE /api/chat/:room_id
- * Delete a chat room and all its messages
- * (Admin/Manager only)
- */
+// Delete a chat room
 router.delete('/:room_id', async (req, res) => {
   try {
     const { room_id } = req.params;

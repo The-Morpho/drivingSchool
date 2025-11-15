@@ -100,18 +100,7 @@ export const apiService = {
     update: (id: string, data: any) => api.put(`/managers/${id}`, data),
     delete: (id: string) => api.delete(`/managers/${id}`),
   },
-  assignments: {
-    getAll: () => api.get('/assignments'),
-    getMyCustomers: () => api.get('/assignments/my-customers'),
-    getMyStaff: () => api.get('/assignments/my-staff'),
-    getAssignedCustomers: (staffId: string) => api.get(`/assignments/staff/${staffId}/customers`),
-    getAssignedStaff: (customerId: string) => api.get(`/assignments/customer/${customerId}/staff`),
-    getCustomersByStaffAddress: (staffId: string) => api.get(`/assignments/staff/${staffId}/available-customers`),
-    create: (data: any) => api.post('/assignments', data),
-    bulkCreate: (data: any) => api.post('/assignments/bulk', data),
-    delete: (assignmentId: string) => api.delete(`/assignments/${assignmentId}`),
-    getStats: () => api.get('/assignments/stats'),
-  },
+  
 };
 
 export default api;

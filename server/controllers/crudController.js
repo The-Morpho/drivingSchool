@@ -1,15 +1,18 @@
-export const getAll = (Model) => async (req, res) => {
+import { ObjectId } from 'mongodb';
+import { getDB } from '../db.js';
+
+export const getAll = (collectionName) => async (req, res) => {
   try {
-    const data = await Model.find();
+    const data = await getDB().collection(collectionName).find().toArray();
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-export const getById = (Model) => async (req, res) => {
+export const getById = (collectionName) => async (req, res) => {
   try {
-    const data = await Model.findById(req.params.id);
+    const data = await getDB().collection(collectionName).findOne({ _id: new ObjectId(req.params.id) });
     if (!data) return res.status(404).json({ error: 'Not found' });
     res.json(data);
   } catch (error) {
@@ -17,29 +20,37 @@ export const getById = (Model) => async (req, res) => {
   }
 };
 
-export const create = (Model) => async (req, res) => {
+export const create = (collectionName) => async (req, res) => {
   try {
-    const data = await Model.create(req.body);
-    res.status(201).json(data);
+    const result = await getDB().collection(collectionName).insertOne(req.body);
+    res.status(201).json({ _id: result.insertedId, ...req.body });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-export const update = (Model) => async (req, res) => {
+export const update = (collectionName) => async (req, res) => {
   try {
-    const data = await Model.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!data) return res.status(404).json({ error: 'Not found' });
-    res.json(data);
+    const { _id, ...updateData } = req.body;
+    
+    const result = await getDB().collection(collectionName).findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-export const delete_ = (Model) => async (req, res) => {
+export const delete_ = (collectionName) => async (req, res) => {
   try {
-    const data = await Model.findByIdAndDelete(req.params.id);
-    if (!data) return res.status(404).json({ error: 'Not found' });
+    const result = await getDB().collection(collectionName).deleteOne({ _id: new ObjectId(req.params.id) });
+    
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ message: 'Deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });

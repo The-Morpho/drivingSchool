@@ -1,23 +1,17 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
-import { getAll, getById, create, update, delete_ } from '../controllers/crudController.js';
-import * as lessonController from '../controllers/lessonController.js';
-import * as paymentController from '../controllers/paymentController.js';
+import { authenticate } from '../middleware/auth.js';
+import { authorize } from '../middleware/auth.js';
 import * as customerController from '../controllers/customerController.js';
 import * as staffController from '../controllers/staffController.js';
-import * as managerController from '../controllers/managerController.js';
-import * as assignmentController from '../controllers/assignmentController.js';
+import * as lessonController from '../controllers/lessonController.js';
+import * as paymentController from '../controllers/paymentController.js';
 import * as vehicleController from '../controllers/vehicleController.js';
 import * as addressController from '../controllers/addressController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
-import Address from '../models/Address.js';
-import Customer from '../models/Customer.js';
-import CustomerPayment from '../models/CustomerPayment.js';
-import Lesson from '../models/Lesson.js';
-import Staff from '../models/Staff.js';
-import Vehicle from '../models/Vehicle.js';
-import Manager from '../models/Manager.js';
 import Account from '../models/Account.js';
+import Staff from '../models/Staff.js';
+import Customer from '../models/Customer.js';
+
 
 const router = express.Router();
 
@@ -44,7 +38,7 @@ router.post('/login', async (req, res) => {
     let frontendRole = null;
 
     if (account.role === 'Manager') {
-      userDetails = await Manager.findOne({ manager_id: account.manager_id });
+      userDetails = await Staff.findOne({ staff_id: account.manager_id });
       // Determine if manager is admin or manager based on username
       frontendRole = account.username === 'admin' ? 'admin' : 'manager';
     } else if (account.role === 'Staff') {
@@ -101,6 +95,7 @@ router.delete('/staff/:id', authorize('admin', 'manager'), staffController.delet
 
 // Lessons routes with role-based filtering
 router.get('/lessons', lessonController.getAll);
+router.get('/lessons/available-instructors/:customer_id', authorize('admin', 'manager'), lessonController.getAvailableInstructors);
 router.get('/lessons/staff-with-customers', authorize('admin', 'manager'), lessonController.getStaffWithAssignedCustomers);
 router.get('/lessons/assignments/for-creation', authorize('admin', 'manager'), lessonController.getAssignmentsForLessonCreation);
 router.get('/lessons/:id', lessonController.getById);
@@ -114,26 +109,6 @@ router.get('/payments/:id', paymentController.getById);
 router.post('/payments', authorize('admin', 'manager'), paymentController.create);
 router.put('/payments/:id', authorize('admin', 'manager'), paymentController.update);
 router.delete('/payments/:id', authorize('admin', 'manager'), paymentController.delete_);
-
-// Manager routes (admin only)
-router.get('/managers', authorize('admin'), managerController.getAll);
-router.get('/managers/:id', authorize('admin'), managerController.getById);
-router.post('/managers', authorize('admin'), managerController.create);
-router.put('/managers/:id', authorize('admin'), managerController.update);
-router.delete('/managers/:id', authorize('admin'), managerController.delete_);
-
-// Staff-Customer Assignment routes
-router.get('/assignments/my-customers', authorize('admin', 'manager', 'instructor'), assignmentController.getMyAssignedCustomers);
-router.get('/assignments/my-staff', authorize('admin', 'manager', 'customer'), assignmentController.getMyAssignedStaff);
-router.get('/assignments', authorize('admin', 'manager'), assignmentController.getAllAssignments);
-router.get('/assignments/stats', authorize('admin', 'manager'), assignmentController.getAssignmentStats);
-router.get('/assignments/staff/:staff_id/available-customers', authorize('admin', 'manager'), assignmentController.getAvailableCustomersForStaff);
-router.get('/assignments/staff/:staff_id/customers', authorize('admin', 'manager', 'instructor'), assignmentController.getAssignedCustomers);
-router.get('/assignments/customer/:customer_id/staff', authorize('admin', 'manager', 'customer'), assignmentController.getAssignedStaff);
-router.get('/customers/address/:staff_id', authorize('admin', 'manager'), assignmentController.getCustomersByAddress);
-router.post('/assignments', authorize('admin', 'manager'), assignmentController.assignCustomersToStaff);
-router.post('/assignments/bulk', authorize('admin', 'manager'), assignmentController.bulkAssignCustomersToStaff);
-router.delete('/assignments/:assignment_id', authorize('admin', 'manager'), assignmentController.removeAssignment);
 
 // Vehicle routes with dedicated controller
 router.get('/vehicles', vehicleController.getAll);
