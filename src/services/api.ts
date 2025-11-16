@@ -161,6 +161,13 @@ export const apiService = {
     update: (id: string, data: any) => api.put(`/managers/${id}`, data),
     delete: (id: string) => api.delete(`/managers/${id}`),
   },
+  accounts: {
+    getAll: () => api.get('/accounts'),
+    getById: (id: string) => api.get(`/accounts/${id}`),
+    create: (data: any) => api.post('/accounts', data),
+    update: (id: string, data: any) => api.put(`/accounts/${id}`, data),
+    delete: (id: string) => api.delete(`/accounts/${id}`),
+  },
   
 };
 

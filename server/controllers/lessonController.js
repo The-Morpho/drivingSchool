@@ -64,22 +64,28 @@ export const getById = async (req, res) => {
 
 export const create = async (req, res) => {
   try {
-    const result = await getCollection('Lessons').insertOne(req.body);
+    // Ensure a numeric lesson_id is assigned to avoid duplicate null keys
+    const lastLesson = await getCollection('Lessons').findOne({}, { sort: { lesson_id: -1 } });
+    const nextLessonId = lastLesson && lastLesson.lesson_id ? lastLesson.lesson_id + 1 : 1;
+    const lessonDoc = { ...req.body };
+    if (!lessonDoc.lesson_id) lessonDoc.lesson_id = nextLessonId;
+
+    const result = await getCollection('Lessons').insertOne(lessonDoc);
     
     // Update customer's amount_outstanding if lesson has a price
-    if (req.body.price && req.body.customer_id) {
+    if (lessonDoc.price && lessonDoc.customer_id) {
       await getCollection('Customers').updateOne(
-        { customer_id: req.body.customer_id },
-        { $inc: { amount_outstanding: req.body.price } }
+        { customer_id: lessonDoc.customer_id },
+        { $inc: { amount_outstanding: lessonDoc.price } }
       );
     }
     
     // Create chat room between staff and customer if it doesn't exist
-    if (req.body.staff_id && req.body.customer_id) {
+    if (lessonDoc.staff_id && lessonDoc.customer_id) {
       try {
         // Get staff and customer accounts
-        const staffAccount = await Account.findOne({ staff_id: req.body.staff_id });
-        const customerAccount = await Account.findOne({ customer_id: req.body.customer_id });
+        const staffAccount = await Account.findOne({ staff_id: lessonDoc.staff_id });
+        const customerAccount = await Account.findOne({ customer_id: lessonDoc.customer_id });
         
         if (staffAccount && customerAccount) {
           const room_id = `${staffAccount.username}_${customerAccount.username}`;
@@ -89,8 +95,8 @@ export const create = async (req, res) => {
           
           if (!existingRoom) {
             // Get staff and customer details
-            const staff = await Staff.findOne({ staff_id: req.body.staff_id });
-            const customer = await Customer.findOne({ customer_id: req.body.customer_id });
+            const staff = await Staff.findOne({ staff_id: lessonDoc.staff_id });
+            const customer = await Customer.findOne({ customer_id: lessonDoc.customer_id });
             
             if (staff && customer) {
               // Create chat room
@@ -115,7 +121,7 @@ export const create = async (req, res) => {
       }
     }
     
-    res.status(201).json({ _id: result.insertedId, ...req.body });
+    res.status(201).json({ _id: result.insertedId, ...lessonDoc });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

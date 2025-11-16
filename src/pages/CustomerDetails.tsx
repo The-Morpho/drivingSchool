@@ -42,18 +42,74 @@ export const CustomerDetails: React.FC = () => {
     const fetchDetails = async () => {
       setLoading(true);
       try {
+        // Fetch required resources first (customer, lessons, payments).
         const [customerRes, lessonsRes, paymentsRes] = await Promise.all([
           apiService.customers.getById(id),
           apiService.lessons.getAll(),
           apiService.payments.getAll(),
         ]);
 
+        // Fetch optional resources (staff, addresses, vehicles) but don't fail if missing
+        const optional = await Promise.allSettled([
+          apiService.staff.getAll(),
+          apiService.addresses.getAll(),
+          apiService.vehicles.getAll(),
+        ]);
+
+        const [staffResSettled, addressesResSettled, vehiclesResSettled] = optional;
+        const staffRes = staffResSettled.status === 'fulfilled' ? staffResSettled.value : { data: [] };
+        const addressesRes = addressesResSettled.status === 'fulfilled' ? addressesResSettled.value : { data: [] };
+        const vehiclesRes = vehiclesResSettled.status === 'fulfilled' ? vehiclesResSettled.value : { data: [] };
+
         const customerData = customerRes.data;
+        // build lookups for staff and addresses
+        const staffList = staffRes.data || [];
+        const staffById: Record<string | number, any> = (staffList || []).reduce((acc: any, s: any) => {
+          if (s.staff_id != null) acc[s.staff_id] = s;
+          if (s._id) acc[s._id] = s;
+          return acc;
+        }, {});
+
+        const addressList = addressesRes.data || [];
+        const addressById: Record<string | number, any> = (addressList || []).reduce((acc: any, a: any) => {
+          if (a.address_id != null) acc[a.address_id] = a;
+          if (a._id) acc[a._id] = a;
+          return acc;
+        }, {});
+
+        const vehicleList = vehiclesRes.data || [];
+        const vehicleById: Record<string | number, any> = (vehicleList || []).reduce((acc: any, v: any) => {
+          if (v.vehicle_id != null) acc[v.vehicle_id] = v;
+          if (v._id) acc[v._id] = v;
+          return acc;
+        }, {});
+
+        // attach resolved address to customer if not already present
+        if (!customerData.address) {
+          const addr = addressById[customerData.customer_address_id];
+          if (addr) customerData.address = addr;
+        }
+
         setCustomer(customerData);
 
-        const lessonData = (lessonsRes.data || []).filter(
-          (lesson: any) => lesson.customer_id === customerData.customer_id,
-        );
+        const allLessons = lessonsRes.data || [];
+        const lessonData = allLessons
+          .filter((lesson: any) => lesson.customer_id === customerData.customer_id)
+          .map((lesson: any) => {
+            const resolved: any = { ...lesson };
+            // try to attach instructor object
+            const instructor = staffById[lesson.staff_id] || null;
+            if (instructor) resolved.instructor = instructor;
+            // try to attach instructor address
+            if (instructor && instructor.staff_address_id) {
+              resolved.instructorAddress = addressById[instructor.staff_address_id] || null;
+            }
+            // if lesson has a vehicle or other nested refs they can be resolved similarly
+            if (lesson.vehicle_id) {
+              resolved.vehicle = vehicleById[lesson.vehicle_id] || null;
+            }
+            return resolved;
+          });
         setLessons(lessonData);
 
         const paymentData = (paymentsRes.data || []).filter(
@@ -157,19 +213,25 @@ export const CustomerDetails: React.FC = () => {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <p className="text-xs text-gray-500">Email</p>
-              <p className="text-sm font-medium text-gray-900">{customer.email_address || '—'}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-900">{customer.email_address || '—'}</p>
+                <Link to={`/customers/edit/${customer._id || customer.customer_id}`} className="text-xs text-blue-600 hover:underline">Edit</Link>
+              </div>
             </div>
             <div>
               <p className="text-xs text-gray-500">Phone</p>
-              <p className="text-sm font-medium text-gray-900">{customer.phone_number || '—'}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-900">{customer.phone_number || '—'}</p>
+                <Link to={`/customers/edit/${customer._id || customer.customer_id}`} className="text-xs text-blue-600 hover:underline">Edit</Link>
+              </div>
             </div>
             <div>
               <p className="text-xs text-gray-500">City</p>
-              <p className="text-sm font-medium text-gray-900">{customer.city || '—'}</p>
+              <p className="text-sm font-medium text-gray-900">{(customer.address && (customer.address.city || customer.address.line_1_number_building)) || customer.city || '—'}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Country</p>
-              <p className="text-sm font-medium text-gray-900">{customer.country || '—'}</p>
+              <p className="text-sm font-medium text-gray-900">{customer.address?.country || customer.country || '—'}</p>
             </div>
           </div>
         </section>
@@ -177,15 +239,20 @@ export const CustomerDetails: React.FC = () => {
         <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-500">Account</p>
-              <h2 className="text-lg font-semibold text-gray-900">Security & status</h2>
+              <div className="flex items-center gap-3">
+                <div>
+                  <p className="text-xs text-gray-500">Account</p>
+                  <h2 className="text-lg font-semibold text-gray-900">Security & status</h2>
+                </div>
+                <Link to={`/customers/edit/${customer._id || customer.customer_id}`} className="text-sm text-blue-600 hover:underline">Edit</Link>
+              </div>
             </div>
             <LockIconCustom />
           </div>
           <div className="grid gap-3">
             <div className="flex items-center justify-between text-sm text-gray-600">
               <span>Username</span>
-              <span className="font-medium text-gray-900">{customer.username || '—'}</span>
+              <span className="font-medium text-gray-900">{customer.first_name || '—'}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-600">
               <span>Active</span>
@@ -213,23 +280,38 @@ export const CustomerDetails: React.FC = () => {
               <div key={lesson._id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-gray-900">{lesson.lesson_date || lesson.date_time || '—'}</p>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${lessonStatusClass(lesson.lesson_status)}`}>
-                    {lesson.lesson_status || 'Planned'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${lessonStatusClass(lesson.lesson_status)}`}>
+                      {lesson.lesson_status || 'Planned'}
+                    </span>
+                    <Link to={`/lessons/edit/${lesson._id || lesson.lesson_id}`} className="text-xs text-blue-600 hover:underline">Edit</Link>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-500">Time: {lesson.lesson_time || lesson.date_time?.split('T')[1] || 'TBD'}</p>
                 <div className="flex items-center justify-between text-sm text-gray-600">
                   <span>Instructor</span>
-                  <span className="font-medium text-gray-900">{lesson.staff_id || 'Unassigned'}</span>
+                  <span className="font-medium text-gray-900">{(lesson.instructor && `${lesson.instructor.first_name || ''} ${lesson.instructor.last_name || ''}`) || lesson.staff_id || 'Unassigned'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-gray-600">
                   <span>Duration</span>
                   <span className="font-medium text-gray-900">{lesson.lesson_duration || '1'}h</span>
                 </div>
+                {lesson.instructorAddress && (
+                  <div className="text-sm text-gray-600">
+                    <p className="font-medium text-gray-900">{lesson.instructorAddress.line_1_number_building || ''}</p>
+                    <p className="text-xs">{`${lesson.instructorAddress.city || ''}${lesson.instructorAddress.city ? ', ' : ''}${lesson.instructorAddress.country || ''}`}</p>
+                  </div>
+                )}
                 {lesson.price && (
                   <div className="flex items-center justify-between text-sm text-gray-600">
                     <span>Price</span>
                     <span className="font-medium text-gray-900">{formatCurrency(lesson.price)}</span>
+                  </div>
+                )}
+                {lesson.vehicle && (
+                  <div className="text-sm text-gray-600">
+                    <p className="font-medium text-gray-900">Vehicle: {lesson.vehicle.vehicle_name} {lesson.vehicle.vehicle_model}</p>
+                    {lesson.vehicle.vehicle_details && <p className="text-xs text-gray-500">{lesson.vehicle.vehicle_details}</p>}
                   </div>
                 )}
               </div>
@@ -255,7 +337,10 @@ export const CustomerDetails: React.FC = () => {
             payments.map((payment) => (
               <div key={payment._id} className="flex flex-col gap-2 bg-white border border-gray-200 rounded-xl p-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{formatCurrency(payment.amount_payment)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(payment.amount_payment)}</p>
+                    <Link to={`/payments/edit/${payment._id || payment.payment_id}`} className="text-xs text-blue-600 hover:underline">Edit</Link>
+                  </div>
                   <p className="text-xs text-gray-500">{payment.payment_method_code || 'Unknown method'}</p>
                 </div>
                 <div className="text-sm text-gray-600">

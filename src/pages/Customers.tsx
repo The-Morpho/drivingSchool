@@ -30,20 +30,21 @@ interface CustomerForm {
     zip_postcode?: string;
     state_province_county?: string;
     country?: string;
-    isActive?: boolean;
   }
 
   export const Customers: React.FC = () => {
     const { data, loading, refetch } = useFetch(() => apiService.customers.getAll());
     // local user/role detection
     const [currentUserRole, setCurrentUserRole] = useState<string>('');
+    const [query, setQuery] = useState<string>('');
 
     // Lesson modal state
   const [lessonModalOpen, setLessonModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [customerLessons, setCustomerLessons] = useState<any[]>([]);
   const [availableStaff, setAvailableStaff] = useState<any[]>([]);
-  const [newLesson, setNewLesson] = useState<{ date_time?: string; staff_id?: number | null; price?: number | null; lesson_duration?: string }>({ date_time: '', staff_id: null, price: null, lesson_duration: '1' });
+    const [availableVehicles, setAvailableVehicles] = useState<any[]>([]);
+    const [newLesson, setNewLesson] = useState<{ date_time?: string; staff_id?: number | null; price?: number | null; lesson_duration?: string; vehicle_id?: number | null; lesson_status?: string }>({ date_time: '', staff_id: null, price: null, lesson_duration: '1', vehicle_id: null, lesson_status: 'Scheduled' });
 
     // Payment modal state
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -80,7 +81,6 @@ interface CustomerForm {
       zip_postcode: '',
       state_province_county: '',
       country: '',
-      isActive: true,
     });
 
     const handleOpenModal = (customer?: any) => {
@@ -107,7 +107,6 @@ interface CustomerForm {
           zip_postcode: '',
           state_province_county: '',
           country: '',
-          isActive: true,
         });
         setEditingId(null);
       }
@@ -132,7 +131,6 @@ interface CustomerForm {
           email_address: form.email_address,
           password: form.password,
           username: form.username || form.email_address,
-          isActive: form.isActive,
 
           // Customer fields
           customer_status_code: form.customer_status_code,
@@ -162,7 +160,6 @@ interface CustomerForm {
             last_name: basePayload.last_name,
             amount_outstanding: basePayload.amount_outstanding,
             phone_number: basePayload.phone_number,
-            isActive: basePayload.isActive,
             // if address fields are present, include them so server may create/update address
             line_1_number_building: basePayload.line_1_number_building,
             city: basePayload.city,
@@ -189,6 +186,33 @@ interface CustomerForm {
         console.error('Error saving customer:', error);
         const errorMessage = error.response?.data?.error || error.message || 'Error saving customer. Please try again.';
         alert(errorMessage);
+      }
+    };
+
+    // add delete confirmation state
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [customerToDelete, setCustomerToDelete] = useState<any>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    // replace window.confirm usage: open modal first
+    const initiateDelete = (customer: any) => {
+      setCustomerToDelete(customer);
+      setDeleteModalOpen(true);
+    };
+
+    const confirmDelete = async () => {
+      if (!customerToDelete) return;
+      setIsDeleting(true);
+      try {
+        await apiService.customers.delete(customerToDelete._id);
+        refetch();
+        setDeleteModalOpen(false);
+        setCustomerToDelete(null);
+      } catch (error: any) {
+        console.error('Error deleting customer:', error);
+        alert(error?.response?.data?.error || error?.message || 'Failed to delete customer');
+      } finally {
+        setIsDeleting(false);
       }
     };
 
@@ -221,6 +245,14 @@ interface CustomerForm {
           console.warn('Could not load available staff for customer', err);
           setAvailableStaff([]);
         }
+        // try to load vehicles for selection
+        try {
+          const vehRes = await apiService.vehicles.getAll();
+          setAvailableVehicles(vehRes.data || []);
+        } catch (err) {
+          console.warn('Could not load vehicles', err);
+          setAvailableVehicles([]);
+        }
       } catch (err) {
         console.error('Error loading lessons', err);
         setCustomerLessons([]);
@@ -243,17 +275,18 @@ interface CustomerForm {
           staff_id: newLesson.staff_id,
           lesson_date: lessonDate,
           lesson_time: lessonTime,
-          lesson_status: 'Scheduled',
+          lesson_status: newLesson.lesson_status || 'Scheduled',
           lesson_duration: durationValue,
         };
         if (newLesson.price) payload.price = newLesson.price;
+        if (newLesson.vehicle_id) payload.vehicle_id = newLesson.vehicle_id;
 
         await apiService.lessons.create(payload);
         const res = await apiService.lessons.getAll();
         const lessons = res.data || [];
-        setCustomerLessons(lessons.filter((l: any) => l.customer_id === selectedCustomer.customer_id));
-        refetch();
-  setNewLesson({ date_time: '', staff_id: null, price: null, lesson_duration: '1' });
+          setCustomerLessons(lessons.filter((l: any) => l.customer_id === selectedCustomer.customer_id));
+          refetch();
+        setNewLesson({ date_time: '', staff_id: null, price: null, lesson_duration: '1', vehicle_id: null, lesson_status: 'Scheduled' });
         alert('Lesson created');
       } catch (err: any) {
         console.error('Error creating lesson', err);
@@ -296,9 +329,29 @@ interface CustomerForm {
       </div>
     );
 
-    const activeAccounts = data.filter((c: any) => c.isActive !== false).length;
-    const inactiveAccounts = data.filter((c: any) => c.isActive === false).length;
+    // Helper: derive boolean active state from customer_status_code only
+    const getIsActive = (c: any) => {
+      if (c == null) return true;
+      const status = (c.customer_status_code || 'Active').toString().toLowerCase();
+      return status !== 'inactive';
+    };
+
+    const activeAccounts = data.filter((c: any) => getIsActive(c)).length;
+    const inactiveAccounts = data.filter((c: any) => !getIsActive(c)).length;
     const totalOutstanding = data.reduce((sum: number, c: any) => sum + (c.amount_outstanding || 0), 0);
+
+    // filter data by search query (id, name, email, phone)
+    const filteredData = (data || []).filter((c: any) => {
+      if (!query || query.trim() === '') return true;
+      const q = query.trim().toLowerCase();
+      const fullName = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
+      return (
+        String(c.customer_id || '').toLowerCase().includes(q) ||
+        fullName.includes(q) ||
+        (c.email_address || '').toLowerCase().includes(q) ||
+        (c.phone_number || '').toLowerCase().includes(q)
+      );
+    });
 
     return (
       <div className="space-y-6">
@@ -309,6 +362,28 @@ interface CustomerForm {
             <div>
               <h1 className="text-4xl font-bold mb-2">Customer Management</h1>
               <p className="text-blue-100">Manage your driving school customers and track their progress</p>
+              <div className="mt-4">
+                <label className="sr-only" htmlFor="customer-search">Search customers</label>
+                <div className="relative max-w-md">
+                  <input
+                    id="customer-search"
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search by name, email, phone or id..."
+                    className="w-full px-4 py-2 rounded-lg text-gray-800 bg-white/90 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                  {query && (
+                    <button
+                      onClick={() => setQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600 hover:text-gray-800"
+                      aria-label="Clear search"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <button
               onClick={() => handleOpenModal()}
@@ -370,15 +445,24 @@ interface CustomerForm {
 
         {/* Customers Grid - Card Layout */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {data.length === 0 ? (
+          {filteredData.length === 0 ? (
             <div className="col-span-full text-center py-12 text-gray-500">
               <Users size={48} className="mx-auto mb-4 opacity-50" />
-              <p className="text-lg">No customers yet</p>
-              <p className="text-sm">Click "Add Customer" to create your first customer</p>
+              {data.length === 0 ? (
+                <>
+                  <p className="text-lg">No customers yet</p>
+                  <p className="text-sm">Click "Add Customer" to create your first customer</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg">No results for "{query}"</p>
+                  <p className="text-sm">Try a different search or clear the filter</p>
+                </>
+              )}
             </div>
           ) : (
-            data.map((customer: any) => {
-              const isActive = customer.isActive !== false;
+            filteredData.map((customer: any) => {
+              const isActive = getIsActive(customer);
               return (
                 <div key={customer._id} className={`border-l-4 ${isActive ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'} rounded-xl shadow-md hover:shadow-xl transition-all p-6 space-y-4`}>
                   {/* Header with ID and Status */}
@@ -392,30 +476,35 @@ interface CustomerForm {
                         <p className="text-lg font-bold text-gray-900">#{customer.customer_id}</p>
                       </div>
                     </div>
-                    <select
-                      value={isActive ? 'true' : 'false'}
-                      onChange={async (e) => {
-                        const newStatus = e.target.value === 'true';
-                        try {
-                          await apiService.customers.update(customer._id, {
-                            ...customer,
-                            isActive: newStatus,
-                          });
-                          refetch();
-                        } catch (error) {
-                          console.error('Error updating status:', error);
-                          alert('Failed to update account status');
-                        }
-                      }}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer focus:ring-2 ${
-                        isActive 
-                          ? 'bg-green-100 text-green-800 border-green-200 focus:ring-green-300' 
-                          : 'bg-red-100 text-red-800 border-red-200 focus:ring-red-300'
-                      }`}
-                    >
-                      <option value="true">✓ Active</option>
-                      <option value="false">✗ Inactive</option>
-                    </select>
+                    {/* Status select now uses customer_status_code */}
+                    {(() => {
+                      const statusVal = customer.customer_status_code || 'Active';
+                      const isActiveStatus = (statusVal || '').toString().toLowerCase() !== 'inactive';
+                      return (
+                        <select
+                          value={statusVal}
+                          onChange={async (e) => {
+                            const newStatus = e.target.value || 'Active';
+                            try {
+                              // Update customer_status_code on the server
+                              await apiService.customers.update(customer._id, { customer_status_code: newStatus });
+                              refetch();
+                            } catch (error) {
+                              console.error('Error updating status:', error);
+                              alert('Failed to update account status');
+                            }
+                          }}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer focus:ring-2 ${
+                            isActiveStatus
+                              ? 'bg-green-100 text-green-800 border-green-200 focus:ring-green-300'
+                              : 'bg-red-100 text-red-800 border-red-200 focus:ring-red-300'
+                          }`}
+                        >
+                          <option value="Active">✓ Active</option>
+                          <option value="Inactive">✗ Inactive</option>
+                        </select>
+                      );
+                    })()}
                   </div>
 
                   {/* Customer Name */}
@@ -473,18 +562,18 @@ interface CustomerForm {
                     </div>
                   )}
 
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-2 border-t border-gray-200">
-                    <button
-                      onClick={() => handleOpenModal(customer)}
-                      className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle size={16} />
-                      Edit
-                    </button>
+                  {/* Actions: first row (Edit / Details / Delete), second row (Lessons / Payment) */}
+                  <div className="pt-2 border-t border-gray-200 space-y-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleOpenModal(customer)}
+                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle size={16} />
+                        Edit
+                      </button>
 
-                    {currentUserRole === 'manager' && (
-                      <>
+                      {currentUserRole === 'manager' ? (
                         <Link
                           to={`/customers/${customer._id}`}
                           className="flex-1 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
@@ -492,6 +581,22 @@ interface CustomerForm {
                           <Info size={16} />
                           Details
                         </Link>
+                      ) : (
+                        // keep the space so layout remains consistent for non-managers
+                        <div className="flex-1" />
+                      )}
+
+                      <button
+                        onClick={() => initiateDelete(customer)}
+                        className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                      >
+                        <UserX size={16} />
+                        Delete
+                      </button>
+                    </div>
+
+                    {currentUserRole === 'manager' && (
+                      <div className="flex gap-2">
                         <button
                           onClick={() => openLessonsForCustomer(customer)}
                           className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
@@ -507,16 +612,8 @@ interface CustomerForm {
                           <CreditCard size={16} />
                           Payment
                         </button>
-                      </>
+                      </div>
                     )}
-
-                    <button
-                      onClick={() => handleDelete(customer)}
-                      className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
-                    >
-                      <UserX size={16} />
-                      Delete
-                    </button>
                   </div>
                 </div>
               );
@@ -794,17 +891,32 @@ interface CustomerForm {
                 <p className="text-sm text-gray-500">No lessons found for this customer.</p>
               ) : (
                 <ul className="space-y-2">
-                  {customerLessons.map((l: any) => (
-                    <li key={l._id} className="p-2 border rounded bg-white">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="text-sm font-medium">{l.date_time || l.date || '—'}</div>
-                          <div className="text-xs text-gray-500">Staff: {l.staff_id || 'N/A'}</div>
+                  {customerLessons.map((l: any) => {
+                    // derive display values: prefer lesson_date + lesson_time, fallback to date_time/date
+                    const dateText = l.lesson_date
+                      ? `${l.lesson_date}${l.lesson_time ? ' ' + (typeof l.lesson_time === 'string' ? l.lesson_time.slice(0,5) : l.lesson_time) : ''}`
+                      : (l.date_time || l.date || '—');
+
+                    // try to resolve staff name from availableStaff; fallback to staff_id
+                    const staffObj = availableStaff.find((s: any) => s.staff_id === l.staff_id) || null;
+                    const staffText = staffObj
+                      ? `${(staffObj.first_name || '').trim()} ${(staffObj.last_name || '').trim()}`.trim() || staffObj.nickname || staffObj.staff_id
+                      : (l.staff_id || 'N/A');
+
+                    const priceText = (l.price || l.price === 0) ? (typeof l.price === 'number' ? `$${l.price.toFixed(2)}` : `$${l.price}`) : '';
+
+                    return (
+                      <li key={l._id} className="p-2 border rounded bg-white">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-medium">{dateText}</div>
+                            <div className="text-xs text-gray-500">Instructor: {staffText}</div>
+                          </div>
+                          <div className="text-sm font-semibold">{priceText}</div>
                         </div>
-                        <div className="text-sm font-semibold">{l.price ? `$${l.price}` : ''}</div>
-                      </div>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -833,6 +945,33 @@ interface CustomerForm {
                   {availableStaff.map((s: any) => (
                     <option key={s.staff_id} value={s.staff_id}>{s.first_name} {s.last_name} ({s.nickname || s.staff_id})</option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Vehicle</label>
+                <select
+                  value={newLesson.vehicle_id ?? ''}
+                  onChange={(e) => setNewLesson({ ...newLesson, vehicle_id: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="">Select vehicle (optional)</option>
+                  {availableVehicles.map((v: any) => (
+                    <option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_name} {v.vehicle_model} ({v.vehicle_id})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Status</label>
+                <select
+                  value={newLesson.lesson_status || 'Scheduled'}
+                  onChange={(e) => setNewLesson({ ...newLesson, lesson_status: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Cancelled">Cancelled</option>
                 </select>
               </div>
 
@@ -925,6 +1064,46 @@ interface CustomerForm {
               <button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-white">Record Payment</button>
             </div>
           </form>
+        </Modal>
+
+        {/* Delete confirmation modal (replaces window.confirm) */}
+        <Modal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            setDeleteModalOpen(false);
+            setCustomerToDelete(null);
+          }}
+          title="Confirm Delete"
+        >
+          <div className="space-y-4">
+            <p>
+              Are you sure you want to delete{' '}
+              <strong>
+                {customerToDelete?.first_name} {customerToDelete?.last_name}
+              </strong>
+              ? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteModalOpen(false);
+                  setCustomerToDelete(null);
+                }}
+                className="px-4 py-2 rounded border"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded bg-red-600 text-white disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </Modal>
       </div>
     );

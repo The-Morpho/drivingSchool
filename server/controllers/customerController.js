@@ -194,23 +194,32 @@ export const update = async (req, res) => {
     // Extract isActive from request body
     const { isActive, _id, ...customerData } = req.body;
     
-    // Update customer data
-    const data = await getCollection('Customers').findOneAndUpdate(
+    // Update customer data and get the updated document
+    const result = await getCollection('Customers').findOneAndUpdate(
       { _id: new ObjectId(req.params.id) },
       { $set: customerData },
       { returnDocument: 'after' }
     );
-    
+
+    // `findOneAndUpdate` returns an object with a `value` property containing
+    // the updated document when using the native MongoDB driver. Normalize
+    // to `updatedCustomer` for predictable access below.
+    const updatedCustomer = result && result.value ? result.value : result;
+
     // Update account status if isActive is provided
     if (isActive !== undefined) {
-      await getCollection('Account').updateOne(
-        { customer_id: data.customer_id },
-        { $set: { is_active: isActive } }
-      );
+      // Ensure we have the numeric customer_id to match the Account record
+      const cid = updatedCustomer ? updatedCustomer.customer_id : undefined;
+      if (cid !== undefined) {
+        await getCollection('Account').updateOne(
+          { customer_id: cid },
+          { $set: { is_active: isActive } }
+        );
+      }
     }
-    
+
     // Return customer with updated isActive status
-    res.json({ ...data, isActive });
+    res.json({ ...(updatedCustomer || {}), isActive });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

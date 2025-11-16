@@ -33,7 +33,6 @@ export const Navbar: React.FC = () => {
     { to: '/payments', label: 'Payments', path: '/payments' },
     { to: '/vehicles', label: 'Vehicles', path: '/vehicles' },
     { to: '/addresses', label: 'Addresses', path: '/addresses' },
-    { to: '/assignments', label: 'Assignments', path: '/assignments' },
     { to: '/chat', label: 'Chat', path: '/chat' },
   ];
 
