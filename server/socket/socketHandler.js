@@ -120,7 +120,10 @@ export const initializeSocket = async (httpServer) => {
         }
 
         // Verify room exists and user has access
-        const chatRoom = await ChatRoom.findOne({ room_id });
+        const chatRoom = await ChatRoom.findOne({ room_id })
+          .populate('staff_id', 'first_name last_name nickname', 'staffs')
+          .populate('customer_id', 'first_name last_name email_address username', 'customers');
+          
         if (!chatRoom) {
           console.error(`❌ Chat room not found: ${room_id}`);
           socket.emit('error', { message: 'Chat room not found' });
@@ -129,10 +132,18 @@ export const initializeSocket = async (httpServer) => {
 
         console.log(`✅ Chat room found: ${room_id}`);
 
+        // Get user account to verify access
+        const userAccount = await Account.findOne({ username: socket.username });
+        if (!userAccount) {
+          console.error(`❌ User account not found: ${socket.username}`);
+          socket.emit('error', { message: 'User account not found' });
+          return;
+        }
+
         // Verify user belongs to this room
         const hasAccess = 
-          chatRoom.staff_username === socket.username || 
-          chatRoom.customer_username === socket.username;
+          (userAccount.staff_id && chatRoom.staff_id && userAccount.staff_id.toString() === chatRoom.staff_id.toString()) ||
+          (userAccount.customer_id && chatRoom.customer_id && userAccount.customer_id.toString() === chatRoom.customer_id.toString());
 
         if (!hasAccess) {
           console.error(`❌ Access denied for ${socket.username} to room ${room_id}`);
@@ -142,11 +153,11 @@ export const initializeSocket = async (httpServer) => {
 
         console.log(`✅ Access granted for ${socket.username}`);
 
-        // Get sender name and determine if staff (case-insensitive role check)
+        // Get sender name and determine role
         const roleLower = socket.role.toLowerCase();
         const senderName = roleLower === 'customer' 
-          ? chatRoom.customer_name 
-          : chatRoom.staff_name;
+          ? (chatRoom.customer_id ? `${chatRoom.customer_id.first_name} ${chatRoom.customer_id.last_name}` : socket.username)
+          : (chatRoom.staff_id ? `${chatRoom.staff_id.first_name} ${chatRoom.staff_id.last_name}` : socket.username);
         const isStaffSender = roleLower === 'staff' || roleLower === 'instructor';
 
         console.log(`📝 Creating message: sender=${senderName}, role=${socket.role}`);
@@ -283,8 +294,16 @@ export const initializeSocket = async (httpServer) => {
  */
 async function joinStaffRooms(socket, username) {
   try {
+    // Get staff account and ID
+    const staffAccount = await Account.findOne({ username });
+    if (!staffAccount || !staffAccount.staff_id) {
+      console.error(`❌ Staff account not found for username: ${username}`);
+      return;
+    }
+
     // Find all chat rooms where this staff member is assigned
-    const chatRooms = await ChatRoom.find({ staff_username: username });
+    const chatRooms = await ChatRoom.find({ staff_id: staffAccount.staff_id })
+      .populate('customer_id', 'first_name last_name email_address username', 'customers');
 
     // Join each room
     for (const room of chatRooms) {
@@ -294,14 +313,21 @@ async function joinStaffRooms(socket, username) {
 
     // Send list of rooms to client
     socket.emit('rooms_joined', {
-      rooms: chatRooms.map(r => ({
-        room_id: r.room_id,
-        customer_name: r.customer_name,
-        customer_username: r.customer_username,
-        last_message: r.last_message,
-        last_message_at: r.last_message_at,
-        unread_count: r.unread_count_staff
-      }))
+      rooms: chatRooms.map(r => {
+        const customerName = r.customer_id ? `${r.customer_id.first_name} ${r.customer_id.last_name}` : `Customer ID: ${r.customer_id}`;
+        const customerUsername = r.customer_id ? (r.customer_id.username || r.customer_id.email_address) : `customer${r.customer_id}`;
+        
+        return {
+          room_id: r.room_id,
+          staff_id: r.staff_id,
+          customer_id: r.customer_id._id || r.customer_id,
+          customer_name: customerName,
+          customer_username: customerUsername,
+          customer: r.customer_id,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        };
+      })
     });
   } catch (error) {
     console.error('Error joining staff rooms:', error);
@@ -315,8 +341,16 @@ async function joinStaffRooms(socket, username) {
  */
 async function joinCustomerRooms(socket, username) {
   try {
+    // Get customer account and ID
+    const customerAccount = await Account.findOne({ username });
+    if (!customerAccount || !customerAccount.customer_id) {
+      console.error(`❌ Customer account not found for username: ${username}`);
+      return;
+    }
+
     // Find the chat room for this customer
-    const chatRooms = await ChatRoom.find({ customer_username: username });
+    const chatRooms = await ChatRoom.find({ customer_id: customerAccount.customer_id })
+      .populate('staff_id', 'first_name last_name nickname', 'staffs');
 
     // Join each room (typically just one for customers)
     for (const room of chatRooms) {
@@ -326,14 +360,21 @@ async function joinCustomerRooms(socket, username) {
 
     // Send list of rooms to client
     socket.emit('rooms_joined', {
-      rooms: chatRooms.map(r => ({
-        room_id: r.room_id,
-        staff_name: r.staff_name,
-        staff_username: r.staff_username,
-        last_message: r.last_message,
-        last_message_at: r.last_message_at,
-        unread_count: r.unread_count_customer
-      }))
+      rooms: chatRooms.map(r => {
+        const staffName = r.staff_id ? `${r.staff_id.first_name} ${r.staff_id.last_name}` : `Staff ID: ${r.staff_id}`;
+        const staffUsername = r.staff_id ? (r.staff_id.nickname || `${r.staff_id.first_name.toLowerCase()}${r.staff_id.last_name.toLowerCase()}`) : `staff${r.staff_id}`;
+        
+        return {
+          room_id: r.room_id,
+          staff_id: r.staff_id._id || r.staff_id,
+          customer_id: r.customer_id,
+          staff_name: staffName,
+          staff_username: staffUsername,
+          staff: r.staff_id,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        };
+      })
     });
   } catch (error) {
     console.error('Error joining customer rooms:', error);

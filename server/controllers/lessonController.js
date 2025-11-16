@@ -1,9 +1,5 @@
 import { ObjectId } from 'mongodb';
 import { getDB } from '../db.js';
-import ChatRoom from '../models/ChatRoom.js';
-import Account from '../models/Account.js';
-import Staff from '../models/Staff.js';
-import Customer from '../models/Customer.js';
 
 const getCollection = (name) => getDB().collection(name);
 
@@ -29,7 +25,57 @@ export const getAll = async (req, res) => {
     }
     // Admin and Manager see all lessons (no filter)
 
-    const data = await getCollection('Lessons').find(query).toArray();
+    // Use aggregation to populate related data
+    const pipeline = [
+      { $match: query },
+      // Lookup customer data
+      {
+        $lookup: {
+          from: 'Customers',
+          localField: 'customer_id',
+          foreignField: 'customer_id',
+          as: 'customer'
+        }
+      },
+      {
+        $unwind: {
+          path: '$customer',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      // Lookup staff data
+      {
+        $lookup: {
+          from: 'Staff',
+          localField: 'staff_id',
+          foreignField: 'staff_id',
+          as: 'staff'
+        }
+      },
+      {
+        $unwind: {
+          path: '$staff',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      // Lookup vehicle data
+      {
+        $lookup: {
+          from: 'Vehicles',
+          localField: 'vehicle_id',
+          foreignField: 'vehicle_id',
+          as: 'vehicle'
+        }
+      },
+      {
+        $unwind: {
+          path: '$vehicle',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    const data = await getCollection('Lessons').aggregate(pipeline).toArray();
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -39,7 +85,59 @@ export const getAll = async (req, res) => {
 export const getById = async (req, res) => {
   try {
     const { role, username } = req.user;
-    const data = await getCollection('Lessons').findOne({ _id: new ObjectId(req.params.id) });
+    
+    // Use aggregation to populate related data
+    const pipeline = [
+      { $match: { _id: new ObjectId(req.params.id) } },
+      // Lookup customer data
+      {
+        $lookup: {
+          from: 'Customers',
+          localField: 'customer_id',
+          foreignField: 'customer_id',
+          as: 'customer'
+        }
+      },
+      {
+        $unwind: {
+          path: '$customer',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      // Lookup staff data
+      {
+        $lookup: {
+          from: 'Staff',
+          localField: 'staff_id',
+          foreignField: 'staff_id',
+          as: 'staff'
+        }
+      },
+      {
+        $unwind: {
+          path: '$staff',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      // Lookup vehicle data
+      {
+        $lookup: {
+          from: 'Vehicles',
+          localField: 'vehicle_id',
+          foreignField: 'vehicle_id',
+          as: 'vehicle'
+        }
+      },
+      {
+        $unwind: {
+          path: '$vehicle',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    const results = await getCollection('Lessons').aggregate(pipeline).toArray();
+    const data = results[0];
     
     if (!data) return res.status(404).json({ error: 'Not found' });
 
@@ -70,6 +168,8 @@ export const create = async (req, res) => {
     const lessonDoc = { ...req.body };
     if (!lessonDoc.lesson_id) lessonDoc.lesson_id = nextLessonId;
 
+    console.log('Creating lesson with data:', lessonDoc);
+
     const result = await getCollection('Lessons').insertOne(lessonDoc);
     
     // Update customer's amount_outstanding if lesson has a price
@@ -81,47 +181,65 @@ export const create = async (req, res) => {
     }
     
     // Create chat room between staff and customer if it doesn't exist
+    let chatRoomCreated = false;
     if (lessonDoc.staff_id && lessonDoc.customer_id) {
       try {
-        // Get staff and customer accounts
-        const staffAccount = await Account.findOne({ staff_id: lessonDoc.staff_id });
-        const customerAccount = await Account.findOne({ customer_id: lessonDoc.customer_id });
+        const room_id = `${lessonDoc.staff_id}_${lessonDoc.customer_id}`;
+        console.log('Proposed room ID:', room_id);
         
-        if (staffAccount && customerAccount) {
-          const room_id = `${staffAccount.username}_${customerAccount.username}`;
+        // Check if room already exists
+        const existingRoom = await getCollection('chatrooms').findOne({ room_id });
+        
+        if (!existingRoom) {
+          // Get staff and customer details to validate they exist
+          const staff = await getCollection('Staff').findOne({ 
+            $or: [
+              { staff_id: lessonDoc.staff_id },
+              { staff_id: parseInt(lessonDoc.staff_id) }
+            ]
+          });
+          const customer = await getCollection('Customers').findOne({ 
+            $or: [
+              { customer_id: lessonDoc.customer_id },
+              { customer_id: parseInt(lessonDoc.customer_id) }
+            ]
+          });
           
-          // Check if room already exists
-          const existingRoom = await ChatRoom.findOne({ room_id });
+          console.log('Staff found:', !!staff, staff?.first_name, staff?.last_name);
+          console.log('Customer found:', !!customer, customer?.first_name, customer?.last_name);
           
-          if (!existingRoom) {
-            // Get staff and customer details
-            const staff = await Staff.findOne({ staff_id: lessonDoc.staff_id });
-            const customer = await Customer.findOne({ customer_id: lessonDoc.customer_id });
+          if (staff && customer) {
+            // Create chat room using only fields defined in the ChatRoom schema
+            const chatRoomDoc = {
+              room_id,
+              staff_id: parseInt(lessonDoc.staff_id),
+              customer_id: parseInt(lessonDoc.customer_id),
+              created_at: new Date(),
+              updated_at: new Date()
+            };
             
-            if (staff && customer) {
-              // Create chat room
-              const chatRoom = new ChatRoom({
-                room_id,
-                staff_id: staff.staff_id,
-                customer_id: customer.customer_id,
-                staff_username: staffAccount.username,
-                customer_username: customerAccount.username,
-                staff_name: `${staff.first_name} ${staff.last_name}`,
-                customer_name: `${customer.first_name} ${customer.last_name}`
-              });
-              
-              await chatRoom.save();
-              console.log(`Chat room created for staff ${staff.staff_id} and customer ${customer.customer_id}`);
-            }
+            await getCollection('chatrooms').insertOne(chatRoomDoc);
+            chatRoomCreated = true;
+            console.log(`✅ Chat room created successfully: ${room_id}`);
+          } else {
+            console.warn(`❌ Could not find staff (ID: ${lessonDoc.staff_id}) or customer (ID: ${lessonDoc.customer_id}) for chat room creation`);
           }
+        } else {
+          console.log(`ℹ️ Chat room already exists: ${room_id}`);
+          chatRoomCreated = true; // Exists already
         }
       } catch (chatError) {
         // Log error but don't fail the lesson creation
-        console.error('Error creating chat room:', chatError);
+        console.error('❌ Error creating chat room:', chatError);
       }
     }
     
-    res.status(201).json({ _id: result.insertedId, ...lessonDoc });
+    res.status(201).json({ 
+      _id: result.insertedId, 
+      ...lessonDoc,
+      message: `Lesson created successfully. ${chatRoomCreated ? 'Chat room created between customer and instructor.' : 'Chat room creation skipped or failed.'}`,
+      chatRoomCreated
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

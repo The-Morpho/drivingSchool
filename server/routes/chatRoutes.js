@@ -22,21 +22,33 @@ router.get('/rooms/all', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Managers only.' });
     }
 
-    // Get all chat rooms with staff and customer names
+    // Get all chat rooms with staff and customer populated
     const chatRooms = await ChatRoom.find({})
-      .sort({ last_message_at: -1 });
+      .populate('staff_id', 'first_name last_name nickname role', 'staffs')
+      .populate('customer_id', 'first_name last_name email_address username', 'customers')
+      .sort({ created_at: -1 });
 
     return res.json({
-      rooms: chatRooms.map(r => ({
-        room_id: r.room_id,
-        staff_name: r.staff_name,
-        customer_name: r.customer_name,
-        staff_username: r.staff_username,
-        customer_username: r.customer_username,
-        last_message: r.last_message,
-        last_message_at: r.last_message_at,
-        created_at: r.created_at
-      }))
+      rooms: chatRooms.map(r => {
+        const staffName = r.staff_id ? `${r.staff_id.first_name} ${r.staff_id.last_name}` : `Staff ID: ${r.staff_id}`;
+        const customerName = r.customer_id ? `${r.customer_id.first_name} ${r.customer_id.last_name}` : `Customer ID: ${r.customer_id}`;
+        const staffUsername = r.staff_id ? (r.staff_id.nickname || `${r.staff_id.first_name.toLowerCase()}${r.staff_id.last_name.toLowerCase()}`) : `staff${r.staff_id}`;
+        const customerUsername = r.customer_id ? (r.customer_id.username || r.customer_id.email_address) : `customer${r.customer_id}`;
+
+        return {
+          room_id: r.room_id,
+          staff_id: r.staff_id._id || r.staff_id,
+          customer_id: r.customer_id._id || r.customer_id,
+          staff_name: staffName,
+          customer_name: customerName,
+          staff_username: staffUsername,
+          customer_username: customerUsername,
+          staff: r.staff_id,
+          customer: r.customer_id,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        };
+      })
     });
   } catch (error) {
     console.error('Get all chat rooms error:', error);
@@ -62,36 +74,62 @@ router.get('/rooms', async (req, res) => {
     let chatRooms;
 
     if (account.role === 'Staff' || account.role === 'Instructor') {
-      // Get all rooms for this staff member
-      chatRooms = await ChatRoom.find({ staff_username: username })
-        .sort({ last_message_at: -1 });
+      // Get staff record to find staff_id
+      const staffRecord = await Staff.findOne({ staff_id: account.staff_id });
+      if (!staffRecord) {
+        return res.status(404).json({ error: 'Staff record not found' });
+      }
+
+      // Get all rooms for this staff member using staff_id
+      chatRooms = await ChatRoom.find({ staff_id: staffRecord.staff_id })
+        .populate('customer_id', 'first_name last_name email_address username', 'customers')
+        .sort({ created_at: -1 });
 
       return res.json({
-        rooms: chatRooms.map(r => ({
-          room_id: r.room_id,
-          customer_name: r.customer_name,
-          customer_username: r.customer_username,
-          last_message: r.last_message,
-          last_message_at: r.last_message_at,
-          unread_count: r.unread_count_staff,
-          created_at: r.created_at
-        }))
+        rooms: chatRooms.map(r => {
+          const customerName = r.customer_id ? `${r.customer_id.first_name} ${r.customer_id.last_name}` : `Customer ID: ${r.customer_id}`;
+          const customerUsername = r.customer_id ? (r.customer_id.username || r.customer_id.email_address) : `customer${r.customer_id}`;
+
+          return {
+            room_id: r.room_id,
+            staff_id: r.staff_id,
+            customer_id: r.customer_id._id || r.customer_id,
+            customer_name: customerName,
+            customer_username: customerUsername,
+            customer: r.customer_id,
+            created_at: r.created_at,
+            updated_at: r.updated_at
+          };
+        })
       });
     } else if (account.role === 'Customer') {
-      // Get room for this customer
-      chatRooms = await ChatRoom.find({ customer_username: username })
-        .sort({ last_message_at: -1 });
+      // Get customer record to find customer_id
+      const customerRecord = await Customer.findOne({ customer_id: account.customer_id });
+      if (!customerRecord) {
+        return res.status(404).json({ error: 'Customer record not found' });
+      }
+
+      // Get room for this customer using customer_id
+      chatRooms = await ChatRoom.find({ customer_id: customerRecord.customer_id })
+        .populate('staff_id', 'first_name last_name nickname role', 'staffs')
+        .sort({ created_at: -1 });
 
       return res.json({
-        rooms: chatRooms.map(r => ({
-          room_id: r.room_id,
-          staff_name: r.staff_name,
-          staff_username: r.staff_username,
-          last_message: r.last_message,
-          last_message_at: r.last_message_at,
-          unread_count: r.unread_count_customer,
-          created_at: r.created_at
-        }))
+        rooms: chatRooms.map(r => {
+          const staffName = r.staff_id ? `${r.staff_id.first_name} ${r.staff_id.last_name}` : `Staff ID: ${r.staff_id}`;
+          const staffUsername = r.staff_id ? (r.staff_id.nickname || `${r.staff_id.first_name.toLowerCase()}${r.staff_id.last_name.toLowerCase()}`) : `staff${r.staff_id}`;
+
+          return {
+            room_id: r.room_id,
+            staff_id: r.staff_id._id || r.staff_id,
+            customer_id: r.customer_id,
+            staff_name: staffName,
+            staff_username: staffUsername,
+            staff: r.staff_id,
+            created_at: r.created_at,
+            updated_at: r.updated_at
+          };
+        })
       });
     }
 
@@ -113,9 +151,18 @@ router.get('/:room_id/messages', async (req, res) => {
     }
 
     // Verify room exists and user has access
-    const chatRoom = await ChatRoom.findOne({ room_id });
+    const chatRoom = await ChatRoom.findOne({ room_id })
+      .populate('staff_id', 'first_name last_name nickname', 'staffs')
+      .populate('customer_id', 'first_name last_name email_address username', 'customers');
+    
     if (!chatRoom) {
       return res.status(404).json({ error: 'Chat room not found' });
+    }
+
+    // Get user account to check access
+    const userAccount = await Account.findOne({ username });
+    if (!userAccount) {
+      return res.status(404).json({ error: 'User account not found' });
     }
 
     // Get user role
@@ -127,8 +174,8 @@ router.get('/:room_id/messages', async (req, res) => {
     // Verify user belongs to this room or is a manager
     const hasAccess = 
       isManagerOrAdmin ||
-      chatRoom.staff_username === username || 
-      chatRoom.customer_username === username;
+      (userAccount.staff_id && chatRoom.staff_id && chatRoom.staff_id.toString() === userAccount.staff_id.toString()) || 
+      (userAccount.customer_id && chatRoom.customer_id && chatRoom.customer_id.toString() === userAccount.customer_id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied to this chat room' });
@@ -161,27 +208,32 @@ router.post('/rooms/create-or-get', async (req, res) => {
       return res.status(400).json({ error: 'Staff and customer usernames required' });
     }
 
-    // Check if room already exists
-    const room_id = `${staff_username}_${customer_username}`;
-    let chatRoom = await ChatRoom.findOne({ room_id });
-
-    if (chatRoom) {
-      return res.json({ room: chatRoom, created: false });
-    }
-
-    // Get staff and customer details
+    // Check if room already exists by staff_id and customer_id
     const staffAccount = await Account.findOne({ username: staff_username });
     const customerAccount = await Account.findOne({ username: customer_username });
 
     if (!staffAccount || !customerAccount) {
-      return res.status(404).json({ error: 'Staff or customer not found' });
+      return res.status(404).json({ error: 'Staff or customer account not found' });
     }
 
+    // Get staff and customer details
     const staff = await Staff.findOne({ staff_id: staffAccount.staff_id });
     const customer = await Customer.findOne({ customer_id: customerAccount.customer_id });
 
     if (!staff || !customer) {
       return res.status(404).json({ error: 'Staff or customer details not found' });
+    }
+
+    const room_id = `${staff_username}_${customer_username}`;
+    let chatRoom = await ChatRoom.findOne({ 
+      staff_id: staff.staff_id, 
+      customer_id: customer.customer_id 
+    })
+      .populate('staff_id', 'first_name last_name nickname', 'staffs')
+      .populate('customer_id', 'first_name last_name email_address username', 'customers');
+
+    if (chatRoom) {
+      return res.json({ room: chatRoom, created: false });
     }
 
     // Verify that they have lessons together
@@ -198,14 +250,14 @@ router.post('/rooms/create-or-get', async (req, res) => {
     chatRoom = new ChatRoom({
       room_id,
       staff_id: staff.staff_id,
-      customer_id: customer.customer_id,
-      staff_username,
-      customer_username,
-      staff_name: `${staff.first_name} ${staff.last_name}`,
-      customer_name: `${customer.first_name} ${customer.last_name}`
+      customer_id: customer.customer_id
     });
 
     await chatRoom.save();
+
+    // Populate the saved room
+    await chatRoom.populate('staff_id', 'first_name last_name nickname', 'staffs');
+    await chatRoom.populate('customer_id', 'first_name last_name email_address username', 'customers');
 
     res.json({ room: chatRoom, created: true });
   } catch (error) {
@@ -242,7 +294,11 @@ router.post('/rooms/sync-lessons', async (req, res) => {
       const room_id = `${staffAccount.username}_${customerAccount.username}`;
 
       // Check if room already exists
-      const existingRoom = await ChatRoom.findOne({ room_id });
+      const existingRoom = await ChatRoom.findOne({ 
+        staff_id: lesson._id.staff_id,
+        customer_id: lesson._id.customer_id
+      });
+      
       if (existingRoom) {
         existing++;
         continue;
@@ -258,11 +314,7 @@ router.post('/rooms/sync-lessons', async (req, res) => {
       const chatRoom = new ChatRoom({
         room_id,
         staff_id: staff.staff_id,
-        customer_id: customer.customer_id,
-        staff_username: staffAccount.username,
-        customer_username: customerAccount.username,
-        staff_name: `${staff.first_name} ${staff.last_name}`,
-        customer_name: `${customer.first_name} ${customer.last_name}`
+        customer_id: customer.customer_id
       });
 
       await chatRoom.save();
@@ -293,7 +345,10 @@ router.delete('/:room_id', async (req, res) => {
     }
 
     // Verify room exists
-    const chatRoom = await ChatRoom.findOne({ room_id });
+    const chatRoom = await ChatRoom.findOne({ room_id })
+      .populate('staff_id', 'first_name last_name', 'staffs')
+      .populate('customer_id', 'first_name last_name', 'customers');
+    
     if (!chatRoom) {
       return res.status(404).json({ error: 'Chat room not found' });
     }
@@ -304,12 +359,15 @@ router.delete('/:room_id', async (req, res) => {
     // Delete the chat room
     await ChatRoom.deleteOne({ room_id });
 
+    const staffName = chatRoom.staff_id ? `${chatRoom.staff_id.first_name} ${chatRoom.staff_id.last_name}` : `Staff ID: ${chatRoom.staff_id}`;
+    const customerName = chatRoom.customer_id ? `${chatRoom.customer_id.first_name} ${chatRoom.customer_id.last_name}` : `Customer ID: ${chatRoom.customer_id}`;
+
     res.json({ 
       message: 'Chat room deleted successfully', 
       room_id,
       messages_deleted: messagesDeleted.deletedCount,
-      staff_name: chatRoom.staff_name,
-      customer_name: chatRoom.customer_name
+      staff_name: staffName,
+      customer_name: customerName
     });
   } catch (error) {
     console.error('Delete chat room error:', error);

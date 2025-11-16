@@ -103,8 +103,9 @@ router.post('/login', async (req, res) => {
 // Apply authentication to all routes below
 router.use(authenticate);
 
-// Customers routes with role-based filtering
+// Customer routes with role-based filtering
 router.get('/customers', customerController.getAll);
+router.get('/customers/my-staff', customerController.getMyStaff);
 router.get('/customers/:id', customerController.getById);
 router.post('/customers', authorize('admin', 'manager'), customerController.create);
 router.put('/customers/:id', customerController.update);
@@ -112,6 +113,7 @@ router.delete('/customers/:id', authorize('admin', 'manager'), customerControlle
 
 // Staff routes with role-based filtering
 router.get('/staff', staffController.getAll);
+router.get('/staff/my-customers', staffController.getMyCustomers);
 router.get('/staff/:id', staffController.getById);
 router.post('/staff', authorize('admin', 'manager'), staffController.create);
 router.put('/staff/:id', staffController.update);

@@ -21,38 +21,8 @@ const chatRoomSchema = new mongoose.Schema({
     required: true,
     ref: 'Customer'
   },
-  staff_username: {
-    type: String,
-    required: true
-  },
-  customer_username: {
-    type: String,
-    required: true
-  },
-  staff_name: {
-    type: String,
-    required: true
-  },
-  customer_name: {
-    type: String,
-    required: true
-  },
-  last_message: {
-    type: String,
-    default: ''
-  },
-  last_message_at: {
-    type: Date,
-    default: null
-  },
-  unread_count_staff: {
-    type: Number,
-    default: 0
-  },
-  unread_count_customer: {
-    type: Number,
-    default: 0
-  },
+  
+  
   created_at: {
     type: Date,
     default: Date.now

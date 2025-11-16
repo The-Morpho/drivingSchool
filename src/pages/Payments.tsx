@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { apiService } from '../services/api';
 import { Modal } from '../components/Modal';
-import { Plus, DollarSign, CreditCard, TrendingUp, AlertCircle, Users, Calendar, CheckCircle, Trash2 } from 'lucide-react';
+import { Plus, DollarSign, CreditCard, TrendingUp, AlertCircle, Users, Calendar, CheckCircle, Trash2, Search, X } from 'lucide-react';
 
 interface PaymentForm {
   customer_id: number;
@@ -22,6 +22,7 @@ export const Payments: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState<PaymentForm>({
     customer_id: 0,
     datetime_payment: '',
@@ -54,7 +55,7 @@ export const Payments: React.FC = () => {
     } else {
       setForm({
         customer_id: 0,
-        datetime_payment: '',
+        datetime_payment: new Date().toISOString().slice(0, 16),
         payment_method_code: 'Cash',
         amount_payment: 0,
       });
@@ -99,6 +100,25 @@ export const Payments: React.FC = () => {
   const cashPayments = data.filter((p: any) => p.payment_method_code === 'Cash').length;
   const cardPayments = data.filter((p: any) => p.payment_method_code === 'Card').length;
 
+  // Filter payments based on search query
+  const filteredData = data.filter((payment: any) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    const customerName = payment.customer 
+      ? `${payment.customer.first_name} ${payment.customer.last_name}`.toLowerCase()
+      : '';
+    const customerId = payment.customer_id?.toString() || '';
+    const amount = payment.amount_payment?.toString() || '';
+    const method = payment.payment_method_code?.toLowerCase() || '';
+    const date = payment.datetime_payment?.toLowerCase() || '';
+    
+    return customerName.includes(query) ||
+           customerId.includes(query) ||
+           amount.includes(query) ||
+           method.includes(query) ||
+           date.includes(query);
+  });
+
   return (
     <div className="space-y-6">
       {/* Enhanced Header */}
@@ -108,6 +128,26 @@ export const Payments: React.FC = () => {
           <div>
             <h1 className="text-4xl font-bold mb-2">Payment Management</h1>
             <p className="text-orange-100">Track customer payments and transactions</p>
+            <div className="mt-4">
+              <div className="relative max-w-md">
+                <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by customer, amount, method, or date..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2 rounded-lg text-gray-800 bg-white/90 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
           {isManagerOrAdmin && (
             <button onClick={() => handleOpenModal()} className="bg-white text-orange-600 px-6 py-3 rounded-xl hover:bg-orange-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105">
@@ -130,15 +170,34 @@ export const Payments: React.FC = () => {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-6 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-orange-600 text-sm font-medium mb-1">Total Revenue</p>
-              <p className="text-3xl font-bold text-orange-900">${totalPayments.toFixed(2)}</p>
+              <p className="text-3xl font-bold text-orange-900">
+                ${filteredData.reduce((sum: number, p: any) => sum + (p.amount_payment || 0), 0).toFixed(2)}
+              </p>
+              {searchQuery && (
+                <p className="text-xs text-orange-600">Filtered from ${totalPayments.toFixed(2)}</p>
+              )}
             </div>
             <div className="bg-orange-200 p-3 rounded-xl">
               <DollarSign className="text-orange-600" size={24} />
+            </div>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-6 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-600 text-sm font-medium mb-1">Total Payments</p>
+              <p className="text-3xl font-bold text-blue-900">{filteredData.length}</p>
+              {searchQuery && (
+                <p className="text-xs text-blue-600">Filtered from {data.length}</p>
+              )}
+            </div>
+            <div className="bg-blue-200 p-3 rounded-xl">
+              <TrendingUp className="text-blue-600" size={24} />
             </div>
           </div>
         </div>
@@ -146,21 +205,31 @@ export const Payments: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-green-600 text-sm font-medium mb-1">Cash Payments</p>
-              <p className="text-3xl font-bold text-green-900">{cashPayments}</p>
+              <p className="text-3xl font-bold text-green-900">
+                {filteredData.filter((p: any) => p.payment_method_code === 'Cash').length}
+              </p>
+              {searchQuery && (
+                <p className="text-xs text-green-600">Filtered from {cashPayments}</p>
+              )}
             </div>
             <div className="bg-green-200 p-3 rounded-xl">
               <TrendingUp className="text-green-600" size={24} />
             </div>
           </div>
         </div>
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-6 hover:shadow-lg transition-all">
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-6 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-blue-600 text-sm font-medium mb-1">Card Payments</p>
-              <p className="text-3xl font-bold text-blue-900">{cardPayments}</p>
+              <p className="text-purple-600 text-sm font-medium mb-1">Card Payments</p>
+              <p className="text-3xl font-bold text-purple-900">
+                {filteredData.filter((p: any) => p.payment_method_code === 'Card').length}
+              </p>
+              {searchQuery && (
+                <p className="text-xs text-purple-600">Filtered from {cardPayments}</p>
+              )}
             </div>
-            <div className="bg-blue-200 p-3 rounded-xl">
-              <CreditCard className="text-blue-600" size={24} />
+            <div className="bg-purple-200 p-3 rounded-xl">
+              <CreditCard className="text-purple-600" size={24} />
             </div>
           </div>
         </div>
@@ -168,28 +237,32 @@ export const Payments: React.FC = () => {
 
       {/* Payments Grid - Card Layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {data.length === 0 ? (
+        {filteredData.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500">
             <DollarSign size={48} className="mx-auto mb-4 opacity-50" />
-            <p className="text-lg">No payments yet</p>
-            <p className="text-sm">Payments will appear here once created</p>
+            <p className="text-lg">
+              {data.length === 0 ? 'No payments yet' : 'No payments match your search'}
+            </p>
+            <p className="text-sm">
+              {data.length === 0 ? 'Payments will appear here once created' : 'Try adjusting your search terms'}
+            </p>
           </div>
         ) : (
-          data.map((payment: any) => (
+          filteredData.map((payment: any) => (
             <div key={payment._id} className="border-l-4 border-orange-400 bg-orange-50 rounded-xl shadow-md hover:shadow-xl transition-all p-6 space-y-4">
-              {/* Header with ID and Amount */}
+              {/* Header with Amount */}
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2">
                   <div className="bg-orange-100 p-2 rounded-lg">
                     <DollarSign className="text-orange-600" size={20} />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 font-medium">Payment ID</p>
-                    <p className="text-lg font-bold text-gray-900">#{payment.payment_id}</p>
+                    <p className="text-xs text-gray-500 font-medium">Payment</p>
+                    <p className="text-lg font-bold text-gray-900">Transaction</p>
                   </div>
                 </div>
                 <div className="bg-orange-100 border border-orange-300 px-3 py-1 rounded-full">
-                  <p className="text-2xl font-bold text-orange-900">${payment.payment_amount?.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-orange-900">${payment.amount_payment?.toFixed(2) || '0.00'}</p>
                 </div>
               </div>
 
@@ -202,6 +275,7 @@ export const Payments: React.FC = () => {
                 <p className="text-lg font-bold text-gray-900">
                   {payment.customer ? `${payment.customer.first_name} ${payment.customer.last_name}` : `ID: ${payment.customer_id}`}
                 </p>
+                <p className="text-xs text-gray-500">Customer ID: {payment.customer_id}</p>
               </div>
 
               {/* Payment Method */}
@@ -210,17 +284,19 @@ export const Payments: React.FC = () => {
                   <CreditCard size={14} className="text-orange-600" />
                   <p className="text-xs text-gray-500 font-medium">Payment Method</p>
                 </div>
-                <p className="text-sm font-semibold text-gray-900">{payment.payment_method || 'N/A'}</p>
+                <p className="text-sm font-semibold text-gray-900">{payment.payment_method_code || 'N/A'}</p>
               </div>
 
-              {/* Payment Date */}
-              {payment.payment_date && (
+              {/* Payment Date & Time */}
+              {payment.datetime_payment && (
                 <div className="bg-white rounded-lg p-3 space-y-1">
                   <div className="flex items-center gap-2">
                     <Calendar size={14} className="text-orange-600" />
-                    <span className="text-xs text-gray-500">Payment Date</span>
+                    <span className="text-xs text-gray-500">Payment Date & Time</span>
                   </div>
-                  <p className="text-sm font-semibold text-gray-900">{payment.payment_date}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {new Date(payment.datetime_payment).toLocaleString()}
+                  </p>
                 </div>
               )}
 
@@ -279,19 +355,20 @@ export const Payments: React.FC = () => {
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
               <CreditCard size={16} className="text-orange-600" />
-              Payment Method *
+              Payment Method Code *
             </label>
             <select value={form.payment_method_code} onChange={(e) => setForm({ ...form, payment_method_code: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all">
               <option value="Cash">💵 Cash</option>
               <option value="Card">💳 Card</option>
               <option value="Check">📝 Check</option>
               <option value="Transfer">🏦 Transfer</option>
+              <option value="Online">💻 Online</option>
             </select>
           </div>
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
               <DollarSign size={16} className="text-orange-600" />
-              Amount *
+              Payment Amount *
             </label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>

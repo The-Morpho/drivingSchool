@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { apiService } from '../services/api';
 import { Modal } from '../components/Modal';
-import { Plus, UserCheck, Users, Calendar, User, Mail, Phone, Lock, Award, CheckCircle, UserX, Info } from 'lucide-react';
+import { Plus, UserCheck, Users, Calendar, User, Mail, Phone, Lock, CheckCircle, UserX, Info } from 'lucide-react';
 
 interface StaffForm {
-  // keep only model fields
+  // Staff model fields
   staff_id?: number;
   staff_address_id?: number;
   nickname: string;
@@ -17,13 +17,26 @@ interface StaffForm {
   email_address: string;
   phone_number: string;
   position_title?: string;
-  // removed password/confirmPassword/isActive/middle_name/address fields
+  
+  // Account fields (for creation only)
+  password?: string;
+  confirmPassword?: string;
+  role?: string;
+  isActive?: boolean;
+  
+  // Address fields
+  line_1_number_building?: string;
+  city?: string;
+  zip_postcode?: string;
+  state_province_county?: string;
+  country?: string;
 }
 
 export const Staff: React.FC = () => {
   const { data, loading, refetch } = useFetch(() => apiService.staff.getAll());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [addresses, setAddresses] = useState<any[]>([]);
 
   // search state
   const [query, setQuery] = useState<string>('');
@@ -38,6 +51,17 @@ export const Staff: React.FC = () => {
     email_address: '',
     phone_number: '',
     position_title: '',
+    // Account fields
+    password: '',
+    confirmPassword: '',
+    role: 'Staff',
+    isActive: true,
+    // Address fields
+    line_1_number_building: '',
+    city: '',
+    zip_postcode: '',
+    state_province_county: '',
+    country: '',
   });
 
   // details modal state (manager)
@@ -52,9 +76,26 @@ export const Staff: React.FC = () => {
   const [staffToDelete, setStaffToDelete] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Fetch addresses on component mount
+  useEffect(() => {
+    const fetchAddresses = async () => {
+      try {
+        const response = await apiService.addresses?.getAll();
+        setAddresses(response?.data || []);
+      } catch (error) {
+        console.error('Error fetching addresses:', error);
+        setAddresses([]);
+      }
+    };
+    fetchAddresses();
+  }, []);
+
   const handleOpenModal = (staff?: any) => {
     if (staff) {
-      // populate only model fields into form
+      // Find the address for this staff member
+      const staffAddress = addresses.find(addr => addr.address_id === staff.staff_address_id);
+      
+      // For editing - populate staff fields only, no password/account fields
       setForm({
         nickname: staff.nickname || '',
         first_name: staff.first_name || '',
@@ -67,19 +108,42 @@ export const Staff: React.FC = () => {
         position_title: staff.position_title || '',
         staff_address_id: staff.staff_address_id,
         staff_id: staff.staff_id,
+        // Address fields from the fetched address
+        line_1_number_building: staffAddress?.line_1_number_building || '',
+        city: staffAddress?.city || '',
+        zip_postcode: staffAddress?.zip_postcode || '',
+        state_province_county: staffAddress?.state_province_county || '',
+        country: staffAddress?.country || '',
+        // Account fields not editable in update mode
+        password: '',
+        confirmPassword: '',
+        role: 'Staff',
+        isActive: true,
       });
       setEditingId(staff._id);
     } else {
+      // For creation - all fields available
       setForm({
         nickname: '',
         first_name: '',
         last_name: '',
         date_of_birth: '',
-        date_joined_staff: '',
+        date_joined_staff: new Date().toISOString().split('T')[0], // Default to today
         date_left_staff: '',
         email_address: '',
         phone_number: '',
         position_title: '',
+        // Account fields
+        password: '',
+        confirmPassword: '',
+        role: 'Staff',
+        isActive: true,
+        // Address fields
+        line_1_number_building: '',
+        city: '',
+        zip_postcode: '',
+        state_province_county: '',
+        country: '',
       });
       setEditingId(null);
     }
@@ -90,27 +154,79 @@ export const Staff: React.FC = () => {
     e.preventDefault();
 
     try {
-      // Build payload using only model fields
+      // Validate required fields
+      if (!form.nickname.trim() || !form.first_name.trim() || !form.last_name.trim() || !form.email_address.trim()) {
+        alert('Please fill in all required fields (nickname, first name, last name, email)');
+        return;
+      }
+
+      // For new staff creation, validate password
+      if (!editingId) {
+        if (!form.password || form.password.length < 6) {
+          alert('Password must be at least 6 characters long');
+          return;
+        }
+        if (form.password !== form.confirmPassword) {
+          alert('Passwords do not match');
+          return;
+        }
+      }
+
+      // Build payload
       const payload: any = {
-        nickname: form.nickname,
-        first_name: form.first_name,
-        last_name: form.last_name,
+        nickname: form.nickname.trim(),
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
         date_of_birth: form.date_of_birth,
         date_joined_staff: form.date_joined_staff,
         date_left_staff: form.date_left_staff,
-        email_address: form.email_address,
-        phone_number: form.phone_number,
-        position_title: form.position_title,
-        // staff_address_id/staff_id are maintained if present but not editable via the simplified form
+        email_address: form.email_address.trim(),
+        phone_number: form.phone_number.trim(),
+        position_title: form.position_title?.trim(),
       };
+
+      // For creation, include account and address data
+      if (!editingId) {
+        payload.password = form.password;
+        payload.role = form.role;
+        payload.isActive = form.isActive;
+        
+        // Include address data if all required fields are provided
+        const hasRequiredAddressFields = form.line_1_number_building?.trim() && form.city?.trim() && form.zip_postcode?.trim();
+        const hasAnyAddressField = form.line_1_number_building?.trim() || form.city?.trim() || form.zip_postcode?.trim() || 
+                                  form.state_province_county?.trim() || form.country?.trim();
+        
+        if (hasAnyAddressField && !hasRequiredAddressFields) {
+          alert('To save an address, please provide Building/Street, City, and ZIP code.');
+          return;
+        }
+        
+        if (hasRequiredAddressFields) {
+          payload.address = {
+            line_1_number_building: form.line_1_number_building!.trim(),
+            city: form.city!.trim(),
+            zip_postcode: form.zip_postcode!.trim(),
+            state_province_county: form.state_province_county?.trim() || '',
+            country: form.country?.trim() || '',
+          };
+        }
+      }
 
       if (editingId) {
         await apiService.staff.update(editingId, payload);
       } else {
+        console.log('Creating staff with payload:', payload);
         await apiService.staff.create(payload);
       }
 
       refetch();
+      // Also refetch addresses to get the newly created address
+      try {
+        const response = await apiService.addresses?.getAll();
+        setAddresses(response?.data || []);
+      } catch (error) {
+        console.error('Error refreshing addresses:', error);
+      }
       setIsModalOpen(false);
     } catch (error: any) {
       console.error('Error saving staff:', error);
@@ -288,7 +404,11 @@ export const Staff: React.FC = () => {
             <p className="text-sm">Click "Add Staff" to create your first staff member</p>
           </div>
         ) : (
-          filteredData.map((staff: any) => (
+          filteredData.map((staff: any) => {
+            // Find the address for this staff member
+            const staffAddress = addresses.find(addr => addr.address_id === staff.staff_address_id);
+            
+            return (
             <div key={staff._id} className="border-l-4 border-green-400 bg-green-50 rounded-xl shadow-md hover:shadow-xl transition-all p-6 space-y-4">
               {/* Header with ID */}
               <div className="flex items-start justify-between">
@@ -336,6 +456,23 @@ export const Staff: React.FC = () => {
                 )}
               </div>
 
+              {/* Address Info */}
+              {staffAddress && (
+                <div className="bg-white rounded-lg p-3">
+                  <p className="text-xs text-gray-500 font-medium mb-1">Address</p>
+                  <div className="text-sm text-gray-700">
+                    {staffAddress.line_1_number_building && (
+                      <p>{staffAddress.line_1_number_building}</p>
+                    )}
+                    <p>
+                      {[staffAddress.city, staffAddress.state_province_county].filter(Boolean).join(', ')}
+                      {staffAddress.zip_postcode && ` ${staffAddress.zip_postcode}`}
+                    </p>
+                    {staffAddress.country && <p>{staffAddress.country}</p>}
+                  </div>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex gap-2 pt-2 border-t border-gray-200">
                 <button
@@ -364,92 +501,292 @@ export const Staff: React.FC = () => {
                 </button>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
       {/* Edit/Create Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? 'Edit Staff' : 'Add New Staff Member'}>
-        <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <User size={16} className="text-green-600" />
-                First Name *
-              </label>
-              <input type="text" placeholder="Enter first name" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" required />
+        <form onSubmit={handleSubmit} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+          {/* Basic Information Section */}
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
+              <User size={18} className="text-green-600" />
+              Basic Information
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  First Name *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Enter first name" 
+                  value={form.first_name} 
+                  onChange={(e) => setForm({ ...form, first_name: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Last Name *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Enter last name" 
+                  value={form.last_name} 
+                  onChange={(e) => setForm({ ...form, last_name: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Nickname *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Username/nickname" 
+                  value={form.nickname} 
+                  onChange={(e) => setForm({ ...form, nickname: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                  required 
+                  readOnly={!!editingId}
+                />
+                {editingId && <p className="text-xs text-gray-500 mt-1">Nickname cannot be changed</p>}
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <User size={16} className="text-green-600" />
-                Last Name *
-              </label>
-              <input type="text" placeholder="Enter last name" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" required />
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Email Address *
+                </label>
+                <input 
+                  type="email" 
+                  placeholder="staff@example.com" 
+                  value={form.email_address} 
+                  onChange={(e) => setForm({ ...form, email_address: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <input 
+                  type="tel" 
+                  placeholder="(123) 456-7890" 
+                  value={form.phone_number} 
+                  onChange={(e) => setForm({ ...form, phone_number: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                />
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Award size={16} className="text-green-600" />
-                Nickname *
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Date of Birth
+                </label>
+                <input 
+                  type="date" 
+                  value={form.date_of_birth} 
+                  onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Date Joined *
+                </label>
+                <input 
+                  type="date" 
+                  value={form.date_joined_staff} 
+                  onChange={(e) => setForm({ ...form, date_joined_staff: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Date Left
+                </label>
+                <input 
+                  type="date" 
+                  value={form.date_left_staff} 
+                  onChange={(e) => setForm({ ...form, date_left_staff: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+                />
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Position / Title
               </label>
-              <input type="text" placeholder="Nickname" value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" required />
+              <input 
+                type="text" 
+                placeholder="Instructor, Manager, ..." 
+                value={form.position_title || ''} 
+                onChange={(e) => setForm({ ...form, position_title: e.target.value })} 
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" 
+              />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Calendar size={16} className="text-green-600" />
-                Date of Birth
-              </label>
-              <input type="date" value={form.date_of_birth} onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" />
+          {/* Account Information Section (Only for new staff) */}
+          {!editingId && (
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
+                <Lock size={18} className="text-blue-600" />
+                Account Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Role *
+                  </label>
+                  <select 
+                    value={form.role} 
+                    onChange={(e) => setForm({ ...form, role: e.target.value })} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  >
+                    <option value="Staff">👥 Staff</option>
+                    <option value="Manager">👑 Manager</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 pt-6">
+                  <input 
+                    type="checkbox" 
+                    id="isActive" 
+                    checked={form.isActive} 
+                    onChange={(e) => setForm({ ...form, isActive: e.target.checked })} 
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="isActive" className="text-sm font-bold text-gray-700">
+                    Account Active
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Password *
+                  </label>
+                  <input 
+                    type="password" 
+                    placeholder="Enter password" 
+                    value={form.password} 
+                    onChange={(e) => setForm({ ...form, password: e.target.value })} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" 
+                    required
+                    minLength={6}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Confirm Password *
+                  </label>
+                  <input 
+                    type="password" 
+                    placeholder="Confirm password" 
+                    value={form.confirmPassword} 
+                    onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" 
+                    required
+                  />
+                </div>
+              </div>
             </div>
+          )}
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Calendar size={16} className="text-green-600" />
-                Date Joined
-              </label>
-              <input type="date" value={form.date_joined_staff} onChange={(e) => setForm({ ...form, date_joined_staff: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" />
+          {/* Address Information Section (Optional) */}
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
+              <User size={18} className="text-yellow-600" />
+              Address Information (Optional)
+            </h3>
+            <div className="mb-3 p-3 bg-yellow-100 rounded-lg text-sm text-yellow-800">
+              <p className="font-medium">📍 Address Requirements:</p>
+              <p>To save an address, you must provide at least: Building/Street, City, and ZIP code.</p>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Mail size={16} className="text-green-600" />
-                Email Address *
-              </label>
-              <input type="email" placeholder="staff@example.com" value={form.email_address} onChange={(e) => setForm({ ...form, email_address: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" required />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Building/Street Number *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="123 Main St" 
+                  value={form.line_1_number_building} 
+                  onChange={(e) => setForm({ ...form, line_1_number_building: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all" 
+                />
+                <p className="text-xs text-gray-500 mt-1">Required for address creation</p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  City *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="City name" 
+                  value={form.city} 
+                  onChange={(e) => setForm({ ...form, city: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all" 
+                />
+                <p className="text-xs text-gray-500 mt-1">Required for address creation</p>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Phone size={16} className="text-green-600" />
-                Phone Number
-              </label>
-              <input type="tel" placeholder="(123) 456-7890" value={form.phone_number} onChange={(e) => setForm({ ...form, phone_number: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">
-              Position / Title
-            </label>
-            <input type="text" placeholder="Instructor, Manager, ..." value={form.position_title || ''} onChange={(e) => setForm({ ...form, position_title: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Date Left</label>
-              <input type="date" value={form.date_left_staff} onChange={(e) => setForm({ ...form, date_left_staff: e.target.value })} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  ZIP/Postal Code *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="12345" 
+                  value={form.zip_postcode} 
+                  onChange={(e) => setForm({ ...form, zip_postcode: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all" 
+                />
+                <p className="text-xs text-gray-500 mt-1">Required for address creation</p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  State/Province
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="State or Province" 
+                  value={form.state_province_county} 
+                  onChange={(e) => setForm({ ...form, state_province_county: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all" 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Country
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Country" 
+                  value={form.country} 
+                  onChange={(e) => setForm({ ...form, country: e.target.value })} 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all" 
+                />
+              </div>
             </div>
           </div>
 
           <button type="submit" className="w-full bg-gradient-to-r from-green-600 to-teal-600 text-white px-6 py-3 rounded-xl hover:from-green-700 hover:to-teal-700 font-bold transition-all shadow-lg hover:shadow-xl hover:scale-105 flex items-center justify-center gap-2">
             <UserCheck size={20} />
-            {editingId ? 'Update Staff' : 'Add Staff Member'}
+            {editingId ? 'Update Staff Member' : 'Create Staff Member'}
           </button>
         </form>
       </Modal>

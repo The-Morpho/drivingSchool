@@ -36,6 +36,8 @@ interface CustomerForm {
     const { data, loading, refetch } = useFetch(() => apiService.customers.getAll());
     // local user/role detection
     const [currentUserRole, setCurrentUserRole] = useState<string>('');
+    const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+    const [instructorCustomerIds, setInstructorCustomerIds] = useState<Set<number> | null>(null);
     const [query, setQuery] = useState<string>('');
 
     // Lesson modal state
@@ -57,11 +59,45 @@ interface CustomerForm {
           const parsed = JSON.parse(u);
           const role = (parsed.role || parsed.userType || parsed.user_type || '').toString();
           setCurrentUserRole(role.toLowerCase());
+          const idCandidate = parsed.staff_id ?? parsed.staffId ?? parsed.id ?? parsed.user_id ?? parsed.userId ?? parsed.account_id ?? parsed.accountId;
+          const numericId = idCandidate != null ? Number(idCandidate) : null;
+          setCurrentUserId(Number.isFinite(numericId) ? numericId : null);
         }
       } catch (e) {
         // ignore
       }
     }, []);
+
+    // If user is instructor/staff, fetch lessons and compute their customer ids
+    useEffect(() => {
+      const load = async () => {
+        if (!(currentUserRole === 'instructor' || currentUserRole === 'staff')) {
+          setInstructorCustomerIds(null);
+          return;
+        }
+        if (currentUserId == null) {
+          setInstructorCustomerIds(new Set());
+          return;
+        }
+        try {
+          const res = await apiService.lessons.getAll();
+          const lessons = res.data || [];
+          const ids = new Set<number>();
+          lessons.forEach((l: any) => {
+            if (l == null) return;
+            // coerce to number to compare safely
+            if (Number(l.staff_id) === Number(currentUserId) && l.customer_id != null) {
+              ids.add(Number(l.customer_id));
+            }
+          });
+          setInstructorCustomerIds(ids);
+        } catch (err) {
+          console.warn('Could not derive instructor customers', err);
+          setInstructorCustomerIds(new Set());
+        }
+      };
+      load();
+    }, [currentUserRole, currentUserId]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<CustomerForm>({
@@ -216,17 +252,6 @@ interface CustomerForm {
       }
     };
 
-    const handleDelete = async (customer: any) => {
-      if (window.confirm('Are you sure you want to delete this customer?')) {
-        try {
-          await apiService.customers.delete(customer._id);
-          refetch();
-        } catch (error) {
-          console.error('Error deleting customer:', error);
-        }
-      }
-    };
-
     // Open lessons modal for a customer (manager only)
     const openLessonsForCustomer = async (customer: any) => {
       setSelectedCustomer(customer);
@@ -287,7 +312,7 @@ interface CustomerForm {
           setCustomerLessons(lessons.filter((l: any) => l.customer_id === selectedCustomer.customer_id));
           refetch();
         setNewLesson({ date_time: '', staff_id: null, price: null, lesson_duration: '1', vehicle_id: null, lesson_status: 'Scheduled' });
-        alert('Lesson created');
+        alert('Lesson created successfully! A chat room has been created between the customer and instructor.');
       } catch (err: any) {
         console.error('Error creating lesson', err);
         alert(err.response?.data?.error || err.message || 'Failed to create lesson');
@@ -336,12 +361,22 @@ interface CustomerForm {
       return status !== 'inactive';
     };
 
-    const activeAccounts = data.filter((c: any) => getIsActive(c)).length;
-    const inactiveAccounts = data.filter((c: any) => !getIsActive(c)).length;
-    const totalOutstanding = data.reduce((sum: number, c: any) => sum + (c.amount_outstanding || 0), 0);
+    // choose source customers: if instructor, limit to customers who have lessons with this instructor
+    const sourceCustomers = (data || []).filter((c: any) => {
+      if (currentUserRole === 'instructor' || currentUserRole === 'staff') {
+        // instructorCustomerIds null means not loaded yet -> show nothing until loaded
+        if (instructorCustomerIds == null) return false;
+        return instructorCustomerIds.has(Number(c.customer_id));
+      }
+      return true;
+    });
+
+    const activeAccounts = sourceCustomers.filter((c: any) => getIsActive(c)).length;
+    const inactiveAccounts = sourceCustomers.filter((c: any) => !getIsActive(c)).length;
+    const totalOutstanding = sourceCustomers.reduce((sum: number, c: any) => sum + (c.amount_outstanding || 0), 0);
 
     // filter data by search query (id, name, email, phone)
-    const filteredData = (data || []).filter((c: any) => {
+    const filteredData = sourceCustomers.filter((c: any) => {
       if (!query || query.trim() === '') return true;
       const q = query.trim().toLowerCase();
       const fullName = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();

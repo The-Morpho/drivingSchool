@@ -269,3 +269,44 @@ export const delete_ = async (req, res) => {
   }
 };
 
+export const getMyStaff = async (req, res) => {
+  try {
+    const { username } = req.user;
+    
+    // Find the customer by username
+    const account = await getCollection('Account').findOne({ username, role: 'Customer' });
+    if (!account || !account.customer_id) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Get all lessons for this customer to find their assigned staff
+    const lessons = await getCollection('Lessons').find({ 
+      customer_id: account.customer_id 
+    }).toArray();
+
+    // Get unique staff IDs
+    const staffIds = [...new Set(lessons.map(lesson => lesson.staff_id))];
+
+    // Fetch staff details
+    const staff = await getCollection('Staff').find({
+      staff_id: { $in: staffIds }
+    }).toArray();
+
+    res.json({
+      customer_id: account.customer_id,
+      total_staff: staff.length,
+      staff: staff.map(staffMember => ({
+        staff_id: staffMember.staff_id,
+        first_name: staffMember.first_name,
+        last_name: staffMember.last_name,
+        username: staffMember.nickname,  // Staff uses nickname as username
+        email_address: staffMember.email_address,
+        position_title: staffMember.position_title
+      }))
+    });
+  } catch (error) {
+    console.error('Error in getMyStaff:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+

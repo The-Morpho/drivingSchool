@@ -168,6 +168,10 @@ export const apiService = {
     update: (id: string, data: any) => api.put(`/accounts/${id}`, data),
     delete: (id: string) => api.delete(`/accounts/${id}`),
   },
+  assignments: {
+    getMyCustomers: () => api.get('/staff/my-customers'),
+    getMyStaff: () => api.get('/customers/my-staff'),
+  },
   
 };
 

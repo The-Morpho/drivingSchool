@@ -11,7 +11,6 @@ import {
   markAsRead, 
   sendTypingIndicator
 } from '../services/socket';
-import { apiService } from '../services/api';
 
 interface Message {
   _id: string;
@@ -25,13 +24,27 @@ interface Message {
 
 interface ChatRoom {
   room_id: string;
-  staff_name?: string;
-  customer_name?: string;
-  staff_username?: string;
-  customer_username?: string;
-  last_message: string;
-  last_message_at: string | null;
-  unread_count: number;
+  staff_id?: number;
+  customer_id?: number;
+  created_at?: string;
+  updated_at?: string;
+  // Virtual populated fields from backend
+  staff?: {
+    first_name: string;
+    last_name: string;
+    nickname?: string;
+    role?: string;
+  };
+  customer?: {
+    first_name: string;
+    last_name: string;
+    email_address?: string;
+    username?: string;
+  };
+  // Additional fields that might come from aggregation
+  last_message?: string;
+  last_message_at?: string;
+  unread_count?: number;
 }
 
 interface AssignedPerson {
@@ -62,6 +75,27 @@ export const Chat: React.FC = () => {
   const user = userStr ? JSON.parse(userStr) : null;
   const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager';
 
+  // Helper function to get display names from room data
+  const getDisplayName = (room: ChatRoom, type: 'staff' | 'customer') => {
+    if (type === 'staff') {
+      return (room.staff ? `${room.staff.first_name} ${room.staff.last_name}` : '') ||
+             `Staff ID: ${room.staff_id}`;
+    } else {
+      return (room.customer ? `${room.customer.first_name} ${room.customer.last_name}` : '') ||
+             `Customer ID: ${room.customer_id}`;
+    }
+  };
+
+  const getUsername = (room: ChatRoom, type: 'staff' | 'customer') => {
+    if (type === 'staff') {
+      return (room.staff ? room.staff.nickname || `${room.staff.first_name.toLowerCase()}${room.staff.last_name.toLowerCase()}` : '') ||
+             `staff${room.staff_id}`;
+    } else {
+      return (room.customer ? room.customer.username || room.customer.email_address : '') ||
+             `customer${room.customer_id}`;
+    }
+  };
+
   // Keep ref in sync with selectedRoom state
   useEffect(() => {
     selectedRoomRef.current = selectedRoom;
@@ -82,7 +116,7 @@ export const Chat: React.FC = () => {
     });
 
     onRoomsJoined((data) => {
-      setRooms(data.rooms);
+      setRooms(data.rooms as ChatRoom[]);
       console.log('Joined rooms:', data.rooms.length);
     });
 
@@ -108,7 +142,7 @@ export const Chat: React.FC = () => {
                 ...room, 
                 last_message: message.message, 
                 last_message_at: message.created_at,
-                unread_count: currentRoom?.room_id === room.room_id ? 0 : room.unread_count + 1
+                unread_count: currentRoom?.room_id === room.room_id ? 0 : (room.unread_count || 0) + 1
               }
             : room;
         })
@@ -170,31 +204,53 @@ export const Chat: React.FC = () => {
     try {
       console.log('Loading available people for role:', user.role);
       
-      if (user.role === 'Staff' || user.role === 'Instructor' || user.role === 'instructor') {
-        // Get assigned customers
+      if (user.role === 'staff' || user.role === 'instructor' || user.role === 'Staff' || user.role === 'Instructor') {
+        // Get assigned customers - fetch from staff endpoint
         console.log('Fetching my customers...');
-        const response = await apiService.assignments.getMyCustomers();
-        console.log('API Response:', response.data);
-        // API returns { staff_id, total_customers, customers: [...] }
-        const customers = response.data.customers || [];
-        console.log('Customers loaded:', customers.length, customers);
-        setAvailablePeople(customers);
-      } else if (user.role === 'Customer' || user.role === 'customer') {
-        // Get assigned staff
+        const response = await fetch('http://localhost:5000/api/staff/my-customers', {
+          headers: {
+            'x-account-id': user.account_id,
+            'x-username': user.username,
+            'x-user-role': user.role,
+            'x-user-type': user.userType
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('API Response:', data);
+          const customers = data.customers || [];
+          console.log('Customers loaded:', customers.length, customers);
+          setAvailablePeople(customers);
+        } else {
+          console.error('Failed to fetch customers:', response.statusText);
+          setAvailablePeople([]);
+        }
+      } else if (user.role === 'customer' || user.role === 'Customer') {
+        // Get assigned staff - fetch from customer endpoint
         console.log('Fetching my staff...');
-        const response = await apiService.assignments.getMyStaff();
-        console.log('API Response:', response.data);
-        // API returns { customer_id, total_staff, staff: [...] }
-        const staff = response.data.staff || [];
-        console.log('Staff loaded:', staff.length, staff);
-        setAvailablePeople(staff);
+        const response = await fetch('http://localhost:5000/api/customers/my-staff', {
+          headers: {
+            'x-account-id': user.account_id,
+            'x-username': user.username,
+            'x-user-role': user.role,
+            'x-user-type': user.userType
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('API Response:', data);
+          const staff = data.staff || [];
+          console.log('Staff loaded:', staff.length, staff);
+          setAvailablePeople(staff);
+        } else {
+          console.error('Failed to fetch staff:', response.statusText);
+          setAvailablePeople([]);
+        }
       }
     } catch (error: any) {
       console.error('Failed to load available people:', error);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-        console.error('Error status:', error.response.status);
-      }
       setAvailablePeople([]);
     } finally {
       setLoadingPeople(false);
@@ -205,10 +261,10 @@ export const Chat: React.FC = () => {
     try {
       console.log('Starting chat with:', person);
       
-      const staff_username = user.role === 'Customer' || user.role === 'customer' 
+      const staff_username = user.role === 'customer' || user.role === 'Customer' 
         ? person.username 
         : user.username;
-      const customer_username = user.role === 'Customer' || user.role === 'customer' 
+      const customer_username = user.role === 'customer' || user.role === 'Customer' 
         ? user.username 
         : person.username;
 
@@ -240,10 +296,12 @@ export const Chat: React.FC = () => {
       // Create ChatRoom object
       const newRoom: ChatRoom = {
         room_id: room.room_id,
-        staff_name: room.staff_name,
-        customer_name: room.customer_name,
-        staff_username: room.staff_username,
-        customer_username: room.customer_username,
+        staff_id: room.staff_id,
+        customer_id: room.customer_id,
+        created_at: room.created_at,
+        updated_at: room.updated_at,
+        staff: room.staff,
+        customer: room.customer,
         last_message: room.last_message || '',
         last_message_at: room.last_message_at,
         unread_count: 0
@@ -351,7 +409,10 @@ export const Chat: React.FC = () => {
   };
 
   const handleDeleteConversation = async (room: ChatRoom) => {
-    if (!window.confirm(`Are you sure you want to delete the conversation between ${room.staff_name} and ${room.customer_name}?\n\nThis will permanently delete all messages and cannot be undone.`)) {
+    const staffName = getDisplayName(room, 'staff');
+    const customerName = getDisplayName(room, 'customer');
+    
+    if (!window.confirm(`Are you sure you want to delete the conversation between ${staffName} and ${customerName}?\n\nThis will permanently delete all messages and cannot be undone.`)) {
       return;
     }
 
@@ -437,17 +498,17 @@ export const Chat: React.FC = () => {
                   <div className="flex items-start gap-3">
                     <div className="flex flex-col gap-2">
                       <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-md">
-                        {room.staff_name?.charAt(0).toUpperCase()}
+                        {getDisplayName(room, 'staff')?.charAt(0).toUpperCase()}
                       </div>
                       <div className="bg-gradient-to-br from-green-500 to-teal-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-md">
-                        {room.customer_name?.charAt(0).toUpperCase()}
+                        {getDisplayName(room, 'customer')?.charAt(0).toUpperCase()}
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start mb-1">
                         <div>
-                          <p className="font-bold text-gray-800">{room.staff_name}</p>
-                          <p className="text-sm text-purple-600 font-semibold">→ {room.customer_name}</p>
+                          <p className="font-bold text-gray-800">{getDisplayName(room, 'staff')}</p>
+                          <p className="text-sm text-purple-600 font-semibold">→ {getDisplayName(room, 'customer')}</p>
                         </div>
                         {room.last_message_at && (
                           <span className="text-xs text-gray-400">
@@ -474,15 +535,15 @@ export const Chat: React.FC = () => {
               <div className="p-5 bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200 flex items-center gap-3 shadow-sm">
                 <div className="flex items-center gap-3 flex-1">
                   <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg shadow-md">
-                    {selectedRoom.staff_name?.charAt(0).toUpperCase()}
+                    {getDisplayName(selectedRoom, 'staff')?.charAt(0).toUpperCase()}
                   </div>
                   <div className="text-xl font-bold text-gray-700">↔</div>
                   <div className="bg-gradient-to-br from-green-500 to-teal-600 text-white w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg shadow-md">
-                    {selectedRoom.customer_name?.charAt(0).toUpperCase()}
+                    {getDisplayName(selectedRoom, 'customer')?.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="font-bold text-gray-800 text-lg">
-                      {selectedRoom.staff_name} ↔ {selectedRoom.customer_name}
+                      {getDisplayName(selectedRoom, 'staff')} ↔ {getDisplayName(selectedRoom, 'customer')}
                     </h3>
                     <p className="text-xs text-purple-600 font-semibold flex items-center gap-1">
                       👁️ Monitoring Mode (Read-Only)
@@ -502,7 +563,7 @@ export const Chat: React.FC = () => {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50">
                 {messages.map((msg) => {
-                  const isStaffMessage = msg.sender_username === selectedRoom.staff_username;
+                  const isStaffMessage = msg.sender_username === getUsername(selectedRoom, 'staff');
                   return (
                     <div
                       key={msg._id}
@@ -603,7 +664,7 @@ export const Chat: React.FC = () => {
                   <div className="bg-gradient-to-br from-gray-100 to-gray-200 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                     <MessageCircle className="text-gray-400" size={40} />
                   </div>
-                  <p className="text-gray-700 font-bold text-lg">No {user.role === 'Customer' ? 'instructors' : 'customers'} available</p>
+                  <p className="text-gray-700 font-bold text-lg">No {user.role === 'customer' || user.role === 'Customer' ? 'instructors' : 'customers'} available</p>
                   <p className="text-sm mt-2 text-gray-500">You need an assignment first</p>
                 </div>
               ) : (
@@ -611,9 +672,9 @@ export const Chat: React.FC = () => {
                   {availablePeople.map((person) => {
                     // Check if chat already exists
                     const existingRoom = rooms.find(r => 
-                      user.role === 'Customer' 
-                        ? r.staff_username === person.username
-                        : r.customer_username === person.username
+                      user.role === 'customer' || user.role === 'Customer'
+                        ? getUsername(r, 'staff') === person.username
+                        : getUsername(r, 'customer') === person.username
                     );
 
                     return (
@@ -705,14 +766,14 @@ export const Chat: React.FC = () => {
               >
                 <div className="flex items-start gap-3">
                   <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg shadow-md flex-shrink-0">
-                    {(user.role === 'Customer' ? room.staff_name : room.customer_name)?.charAt(0).toUpperCase()}
+                    {(user.role === 'customer' || user.role === 'Customer' ? getDisplayName(room, 'staff') : getDisplayName(room, 'customer'))?.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
                       <h3 className="font-bold text-gray-800 truncate">
-                        {user.role === 'Customer' ? room.staff_name : room.customer_name}
+                        {user.role === 'customer' || user.role === 'Customer' ? getDisplayName(room, 'staff') : getDisplayName(room, 'customer')}
                       </h3>
-                      {room.unread_count > 0 && (
+                      {(room.unread_count || 0) > 0 && (
                         <span className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs rounded-full min-w-[20px] h-5 flex items-center justify-center px-2 font-bold shadow-md">
                           {room.unread_count}
                         </span>
@@ -748,11 +809,11 @@ export const Chat: React.FC = () => {
               </button>
               <div className="flex items-center gap-3 flex-1">
                 <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg shadow-md">
-                  {(user.role === 'Customer' ? selectedRoom.staff_name : selectedRoom.customer_name)?.charAt(0).toUpperCase()}
+                  {(user.role === 'customer' || user.role === 'Customer' ? getDisplayName(selectedRoom, 'staff') : getDisplayName(selectedRoom, 'customer'))?.charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <h3 className="font-bold text-gray-800 text-lg">
-                    {user.role === 'Customer' ? selectedRoom.staff_name : selectedRoom.customer_name}
+                    {user.role === 'customer' || user.role === 'Customer' ? getDisplayName(selectedRoom, 'staff') : getDisplayName(selectedRoom, 'customer')}
                   </h3>
                   {otherUserTyping ? (
                     <p className="text-xs text-blue-600 italic font-semibold flex items-center gap-1">
