@@ -118,7 +118,7 @@ export const Login: React.FC = () => {
             </div>
             <div className="bg-white p-2 rounded-lg border border-blue-100">
               <div className="font-semibold text-blue-600">Instructor</div>
-              <div className="font-mono">temma / admin123</div>
+              <div className="font-mono">emma / admin123</div>
             </div>
             <div className="bg-white p-2 rounded-lg border border-blue-100">
               <div className="font-semibold text-green-600">Customer</div>
