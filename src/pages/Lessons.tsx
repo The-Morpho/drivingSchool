@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { apiService } from '../services/api';
 import { Modal } from '../components/Modal';
-import { Plus, AlertCircle, CheckCircle, Calendar, Clock, Award, Car, Users, UserCheck, Filter, Search, X } from 'lucide-react';
+import { Plus, AlertCircle, CheckCircle, Calendar, Clock, Award, Car, Users, UserCheck, Search, X } from 'lucide-react';
 
 interface Staff {
   staff_id: number;
@@ -38,10 +38,18 @@ interface LessonForm {
 
 export const Lessons: React.FC = () => {
   const { data, loading, refetch } = useFetch(() => apiService.lessons.getAll());
-  const [currentUserRole, setCurrentUserRole] = useState<string>('');
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>('');
+
+  // Get user role on mount
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      setUserRole(user.role?.toLowerCase() || '');
+    }
+  }, []);
   
   // Direct lesson creation states
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -63,7 +71,7 @@ export const Lessons: React.FC = () => {
   });
 
   // Filter states
-  const [showFilters, setShowFilters] = useState(false);
+  
   const [filters, setFilters] = useState({
     search: '',
     status: 'all',
@@ -87,15 +95,8 @@ export const Lessons: React.FC = () => {
   useEffect(() => {
     if (!data) return;
 
-    // If the user is an instructor/staff, limit base lessons to only those assigned to them
+    // Backend already filters lessons by role, so use data directly
     let base = [...data];
-    if (currentUserRole === 'instructor' || currentUserRole === 'staff') {
-      if (currentUserId == null) {
-        base = [];
-      } else {
-        base = base.filter((l: any) => Number(l.staff_id) === Number(currentUserId));
-      }
-    }
 
     let filtered = base;
     
@@ -148,24 +149,7 @@ export const Lessons: React.FC = () => {
     }
     
     setFilteredData(filtered);
-  }, [data, filters, currentUserRole, currentUserId]);
-
-  // detect logged-in user from localStorage
-  useEffect(() => {
-    try {
-      const u = localStorage.getItem('user');
-      if (u) {
-        const parsed = JSON.parse(u);
-        const role = (parsed.role || parsed.userType || parsed.user_type || '').toString();
-        setCurrentUserRole(role.toLowerCase());
-        const idCandidate = parsed.staff_id ?? parsed.staffId ?? parsed.id ?? parsed.user_id ?? parsed.userId ?? parsed.account_id ?? parsed.accountId;
-        const numericId = idCandidate != null ? Number(idCandidate) : null;
-        setCurrentUserId(Number.isFinite(numericId) ? numericId : null);
-      }
-    } catch (err) {
-      // ignore
-    }
-  }, []);
+  }, [data, filters]);
 
   // Load staff and customers separately
   const loadStaffAndCustomers = async () => {
@@ -190,17 +174,7 @@ export const Lessons: React.FC = () => {
     }
   };
 
-  const clearFilters = () => {
-    setFilters({
-      search: '',
-      status: 'all',
-      dateFrom: '',
-      dateTo: '',
-      instructor: 'all',
-      customer: 'all',
-      vehicle: 'all'
-    });
-  };
+  
 
   const handleOpenModal = (lesson?: any) => {
     if (lesson) {
@@ -342,10 +316,12 @@ export const Lessons: React.FC = () => {
             <h1 className="text-4xl font-bold mb-2">Lesson Management</h1>
             <p className="text-purple-100">Schedule and track driving lessons</p>
           </div>
-          <button onClick={() => handleOpenModal()} className="bg-white text-purple-600 px-6 py-3 rounded-xl hover:bg-purple-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105">
-            <Plus size={22} />
-            Add Lesson
-          </button>
+          {(userRole === 'admin' || userRole === 'manager') && (
+            <button onClick={() => handleOpenModal()} className="bg-white text-purple-600 px-6 py-3 rounded-xl hover:bg-purple-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105">
+              <Plus size={22} />
+              Add Lesson
+            </button>
+          )}
         </div>
       </div>
 

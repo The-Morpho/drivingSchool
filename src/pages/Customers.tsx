@@ -37,7 +37,6 @@ interface CustomerForm {
     // local user/role detection
     const [currentUserRole, setCurrentUserRole] = useState<string>('');
     const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-    const [instructorCustomerIds, setInstructorCustomerIds] = useState<Set<number> | null>(null);
     const [query, setQuery] = useState<string>('');
 
     // Lesson modal state
@@ -67,37 +66,6 @@ interface CustomerForm {
         // ignore
       }
     }, []);
-
-    // If user is instructor/staff, fetch lessons and compute their customer ids
-    useEffect(() => {
-      const load = async () => {
-        if (!(currentUserRole === 'instructor' || currentUserRole === 'staff')) {
-          setInstructorCustomerIds(null);
-          return;
-        }
-        if (currentUserId == null) {
-          setInstructorCustomerIds(new Set());
-          return;
-        }
-        try {
-          const res = await apiService.lessons.getAll();
-          const lessons = res.data || [];
-          const ids = new Set<number>();
-          lessons.forEach((l: any) => {
-            if (l == null) return;
-            // coerce to number to compare safely
-            if (Number(l.staff_id) === Number(currentUserId) && l.customer_id != null) {
-              ids.add(Number(l.customer_id));
-            }
-          });
-          setInstructorCustomerIds(ids);
-        } catch (err) {
-          console.warn('Could not derive instructor customers', err);
-          setInstructorCustomerIds(new Set());
-        }
-      };
-      load();
-    }, [currentUserRole, currentUserId]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<CustomerForm>({
@@ -252,7 +220,8 @@ interface CustomerForm {
       }
     };
 
-    // Open lessons modal for a customer (manager only)
+    // Open lessons modal for a customer (manager or instructor). When opened by
+    // an instructor, only show lessons assigned to that instructor for privacy.
     const openLessonsForCustomer = async (customer: any) => {
       setSelectedCustomer(customer);
       setLessonModalOpen(true);
@@ -260,7 +229,13 @@ interface CustomerForm {
       try {
         const res = await apiService.lessons.getAll();
         const lessons = res.data || [];
-        setCustomerLessons(lessons.filter((l: any) => l.customer_id === customer.customer_id));
+
+        // If current user is an instructor/staff, only show lessons where they are the staff
+        if (currentUserRole === 'instructor' || currentUserRole === 'staff') {
+          setCustomerLessons(lessons.filter((l: any) => l.customer_id === customer.customer_id && Number(l.staff_id) === Number(currentUserId)));
+        } else {
+          setCustomerLessons(lessons.filter((l: any) => l.customer_id === customer.customer_id));
+        }
 
         // load available staff/instructors in same city
         try {
@@ -361,15 +336,8 @@ interface CustomerForm {
       return status !== 'inactive';
     };
 
-    // choose source customers: if instructor, limit to customers who have lessons with this instructor
-    const sourceCustomers = (data || []).filter((c: any) => {
-      if (currentUserRole === 'instructor' || currentUserRole === 'staff') {
-        // instructorCustomerIds null means not loaded yet -> show nothing until loaded
-        if (instructorCustomerIds == null) return false;
-        return instructorCustomerIds.has(Number(c.customer_id));
-      }
-      return true;
-    });
+    // Backend already filters customers by role, so use data directly
+    const sourceCustomers = data || [];
 
     const activeAccounts = sourceCustomers.filter((c: any) => getIsActive(c)).length;
     const inactiveAccounts = sourceCustomers.filter((c: any) => !getIsActive(c)).length;
@@ -419,7 +387,8 @@ interface CustomerForm {
                   )}
                 </div>
               </div>
-            </div>
+          </div>
+          {(currentUserRole === 'admin' || currentUserRole === 'manager') && (
             <button
               onClick={() => handleOpenModal()}
               className="bg-white text-blue-600 px-6 py-3 rounded-xl hover:bg-blue-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105"
@@ -427,10 +396,9 @@ interface CustomerForm {
               <Plus size={22} />
               Add Customer
             </button>
-          </div>
+          )}
         </div>
-
-        {/* Stats Cards */}
+      </div>        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-6 hover:shadow-lg transition-all">
             <div className="flex items-center justify-between">
@@ -630,7 +598,7 @@ interface CustomerForm {
                       </button>
                     </div>
 
-                    {currentUserRole === 'manager' && (
+                    {(currentUserRole === 'manager' || currentUserRole === 'instructor' || currentUserRole === 'staff') && (
                       <div className="flex gap-2">
                         <button
                           onClick={() => openLessonsForCustomer(customer)}
@@ -640,13 +608,15 @@ interface CustomerForm {
                           Lessons
                         </button>
 
-                        <button
-                          onClick={() => openPaymentForCustomer(customer)}
-                          className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
-                        >
-                          <CreditCard size={16} />
-                          Payment
-                        </button>
+                        {currentUserRole === 'manager' && (
+                          <button
+                            onClick={() => openPaymentForCustomer(customer)}
+                            className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                          >
+                            <CreditCard size={16} />
+                            Payment
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

@@ -10,11 +10,26 @@ export const getAll = async (req, res) => {
 
     if (role === 'customer') {
       // Customer sees only their own payments
-      const account = await getCollection('Account').findOne({ username, role: 'Customer' });
+      const account = await getCollection('Account').findOne({ 
+        username, 
+        role: 'Customer' 
+      });
       if (!account || !account.customer_id) {
         return res.json([]);
       }
-      query.customer_id = account.customer_id;
+      
+      // customer_id might be an ObjectId or numeric - resolve to numeric
+      let numericCustomerId = account.customer_id;
+      if (typeof account.customer_id === 'object') {
+        // It's an ObjectId reference - lookup the actual customer document
+        const customer = await getCollection('Customers').findOne({ _id: account.customer_id });
+        if (!customer) {
+          return res.json([]);
+        }
+        numericCustomerId = customer.customer_id;
+      }
+      
+      query.customer_id = numericCustomerId;
     } else if (role === 'instructor' || role === 'staff') {
       // Instructor sees payments for their students only
       const staffRecord = await getCollection('Staff').findOne({ nickname: username });

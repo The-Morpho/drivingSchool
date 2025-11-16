@@ -10,11 +10,26 @@ export const getAll = async (req, res) => {
 
     if (role === 'customer') {
       // Customer sees only their own lessons
-      const account = await getCollection('Account').findOne({ username, role: 'Customer' });
+      const account = await getCollection('Account').findOne({ 
+        username, 
+        role: 'Customer' 
+      });
       if (!account || !account.customer_id) {
         return res.json([]);
       }
-      query.customer_id = account.customer_id;
+      
+      // customer_id might be an ObjectId or numeric - resolve to numeric
+      let numericCustomerId = account.customer_id;
+      if (typeof account.customer_id === 'object') {
+        // It's an ObjectId reference - lookup the actual customer document
+        const customer = await getCollection('Customers').findOne({ customer_id: account.customer_id });
+        if (!customer) {
+          return res.json([]);
+        }
+        numericCustomerId = customer.customer_id;
+      }
+      
+      query.customer_id = numericCustomerId;
     } else if (role === 'instructor' || role === 'staff') {
       // Instructor/Staff sees only lessons they teach
       const staffRecord = await getCollection('Staff').findOne({ nickname: username });
@@ -143,8 +158,25 @@ export const getById = async (req, res) => {
 
     // Check permissions
     if (role === 'customer') {
-      const account = await getCollection('Account').findOne({ username, role: 'Customer' });
-      if (!account || data.customer_id !== account.customer_id) {
+      const account = await getCollection('Account').findOne({ 
+        username, 
+        role: 'Customer' 
+      });
+      if (!account) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      
+      // Resolve numeric customer_id
+      let numericCustomerId = account.customer_id;
+      if (typeof account.customer_id === 'object') {
+        const customer = await getCollection('Customers').findOne({ _id: account.customer_id });
+        if (!customer) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        numericCustomerId = customer.customer_id;
+      }
+      
+      if (data.customer_id !== numericCustomerId) {
         return res.status(403).json({ error: 'Forbidden' });
       }
     } else if (role === 'instructor' || role === 'staff') {

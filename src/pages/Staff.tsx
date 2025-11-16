@@ -37,6 +37,16 @@ export const Staff: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addresses, setAddresses] = useState<any[]>([]);
+  const [userRole, setUserRole] = useState<string>('');
+
+  // Get user role on mount
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      setUserRole(user.role?.toLowerCase() || '');
+    }
+  }, []);
 
   // search state
   const [query, setQuery] = useState<string>('');
@@ -348,13 +358,15 @@ export const Staff: React.FC = () => {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => handleOpenModal()}
-            className="bg-white text-green-600 px-6 py-3 rounded-xl hover:bg-green-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105"
-          >
-            <Plus size={22} />
-            Add Staff
-          </button>
+          {(userRole === 'admin' || userRole === 'manager') && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="bg-white text-green-600 px-6 py-3 rounded-xl hover:bg-green-50 font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2 hover:scale-105"
+            >
+              <Plus size={22} />
+              Add Staff
+            </button>
+          )}
         </div>
       </div>
 
