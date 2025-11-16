@@ -175,7 +175,7 @@ export const delete_ = async (req, res) => {
     
     // Delete the staff's address if they have one
     if (data.staff_address_id) {
-      await getCollection('Adresses').deleteOne({ address_id: data.staff_address_id });
+      await getCollection('Addresses').deleteOne({ address_id: data.staff_address_id });
     }
     
     // Delete the staff record

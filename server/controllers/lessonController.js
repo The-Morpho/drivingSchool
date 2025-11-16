@@ -174,7 +174,7 @@ export const getAvailableInstructors = async (req, res) => {
       return res.json([]);
     }
     
-    const customerAddress = await getCollection('Adresses').findOne({ address_id: customer.customer_address_id });
+  const customerAddress = await getCollection('Addresses').findOne({ address_id: customer.customer_address_id });
     
     if (!customerAddress || !customerAddress.city) {
       return res.json([]);
@@ -184,7 +184,7 @@ export const getAvailableInstructors = async (req, res) => {
     const staffInSameCity = await getCollection('Staff').aggregate([
       {
         $lookup: {
-          from: 'Adresses',
+          from: 'Addresses',
           localField: 'staff_address_id',
           foreignField: 'address_id',
           as: 'address'

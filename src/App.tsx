@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './pages/Dashboard';
 import { Customers } from './pages/Customers';
+import { CustomerDetails } from './pages/CustomerDetails';
 import { Staff } from './pages/Staff';
 import { Vehicles } from './pages/Vehicles';
 import { Lessons } from './pages/Lessons';
@@ -10,7 +11,6 @@ import { Payments } from './pages/Payments';
 import { Addresses } from './pages/Addresses';
 import { Login } from './pages/Login';
 import { Profile } from './pages/Profile';
-import { StaffCustomerAssignment } from './pages/StaffCustomerAssignment';
 import { Chat } from './pages/Chat';
 import { hasAccess, UserRole } from './utils/rolePermissions';
 
@@ -98,6 +98,14 @@ function App() {
                         } 
                       />
                       <Route 
+                        path="/customers/:id" 
+                        element={
+                          <ProtectedRoute path="/customers">
+                            <CustomerDetails />
+                          </ProtectedRoute>
+                        } 
+                      />
+                      <Route 
                         path="/staff" 
                         element={
                           <ProtectedRoute path="/staff">
@@ -145,14 +153,7 @@ function App() {
                           </ProtectedRoute>
                         } 
                       />
-                      <Route 
-                        path="/assignments" 
-                        element={
-                          <ProtectedRoute path="/assignments">
-                            <StaffCustomerAssignment />
-                          </ProtectedRoute>
-                        } 
-                      />
+                      
                       <Route 
                         path="/chat" 
                         element={

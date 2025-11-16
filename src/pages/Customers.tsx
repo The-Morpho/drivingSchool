@@ -1,8 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { apiService } from '../services/api';
 import { Modal } from '../components/Modal';
-import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calendar, CreditCard, Lock } from 'lucide-react';  interface CustomerForm {
+import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calendar, CreditCard, Lock, Info } from 'lucide-react';
+
+const getFreshPaymentState = () => ({
+  amount_payment: null,
+  payment_method_code: 'Cash',
+  datetime_payment: new Date().toISOString().split('T')[0],
+});
+
+interface CustomerForm {
     customer_id?: number;
     customer_address_id?: number;
     customer_status_code: string;
@@ -13,7 +22,6 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
     amount_outstanding: number;
     email_address: string;
     phone_number: string;
-    cell_mobile_phone_number: string;
     username?: string;
     password?: string;
     confirmPassword?: string;
@@ -27,6 +35,32 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
 
   export const Customers: React.FC = () => {
     const { data, loading, refetch } = useFetch(() => apiService.customers.getAll());
+    // local user/role detection
+    const [currentUserRole, setCurrentUserRole] = useState<string>('');
+
+    // Lesson modal state
+  const [lessonModalOpen, setLessonModalOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [customerLessons, setCustomerLessons] = useState<any[]>([]);
+  const [availableStaff, setAvailableStaff] = useState<any[]>([]);
+  const [newLesson, setNewLesson] = useState<{ date_time?: string; staff_id?: number | null; price?: number | null; lesson_duration?: string }>({ date_time: '', staff_id: null, price: null, lesson_duration: '1' });
+
+    // Payment modal state
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [newPayment, setNewPayment] = useState<{ amount_payment?: number | null; payment_method_code?: string; datetime_payment?: string }>(getFreshPaymentState);
+
+    useEffect(() => {
+      try {
+        const u = localStorage.getItem('user');
+        if (u) {
+          const parsed = JSON.parse(u);
+          const role = (parsed.role || parsed.userType || parsed.user_type || '').toString();
+          setCurrentUserRole(role.toLowerCase());
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, []);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<CustomerForm>({
@@ -35,10 +69,9 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
       date_of_birth: '',
       first_name: '',
       last_name: '',
-      amount_outstanding: 0,
+      amount_outstanding: 2500, // default outstanding for new customers
       email_address: '',
       phone_number: '',
-      cell_mobile_phone_number: '',
       username: '',
       password: '',
       confirmPassword: '',
@@ -63,10 +96,9 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
           date_of_birth: '',
           first_name: '',
           last_name: '',
-          amount_outstanding: 0,
+          amount_outstanding: 2500, // default outstanding for new customers
           email_address: '',
           phone_number: '',
-          cell_mobile_phone_number: '',
           username: '',
           password: '',
           confirmPassword: '',
@@ -92,37 +124,64 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
       }
       
       try {
+        // Build payload matching server models and controller expectations
+        const phone = form.phone_number ||  '';
+
+        const basePayload: any = {
+          // Account fields (server will create Account)
+          email_address: form.email_address,
+          password: form.password,
+          username: form.username || form.email_address,
+          isActive: form.isActive,
+
+          // Customer fields
+          customer_status_code: form.customer_status_code,
+          date_became_customer: form.date_became_customer,
+          date_of_birth: form.date_of_birth,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          amount_outstanding: form.amount_outstanding,
+          phone_number: phone,
+
+          // Address fields (server will create Addresses and link)
+          line_1_number_building: form.line_1_number_building,
+          city: form.city,
+          zip_postcode: form.zip_postcode,
+          state_province_county: form.state_province_county,
+          country: form.country,
+        };
+
+        // Remove empty password on update so it's not overwritten
         if (editingId) {
-          await apiService.customers.update(editingId, form);
-        } else {
-          // First create the address if provided
-          let addressId = null;
-          if (form.line_1_number_building && form.city && form.zip_postcode) {
-            const addressData = {
-              line_1_number_building: form.line_1_number_building,
-              city: form.city,
-              zip_postcode: form.zip_postcode,
-              state_province_county: form.state_province_county || '',
-              country: form.country || '',
-            };
-            const addressResponse = await apiService.addresses.create(addressData);
-            addressId = addressResponse.data.address_id;
-          }
-          
-          // Then create customer with address_id
-          const customerData = {
-            ...form,
-            customer_address_id: addressId,
+          // Build update payload - do not send password unless provided
+          const updatePayload: any = {
+            customer_status_code: basePayload.customer_status_code,
+            date_became_customer: basePayload.date_became_customer,
+            date_of_birth: basePayload.date_of_birth,
+            first_name: basePayload.first_name,
+            last_name: basePayload.last_name,
+            amount_outstanding: basePayload.amount_outstanding,
+            phone_number: basePayload.phone_number,
+            isActive: basePayload.isActive,
+            // if address fields are present, include them so server may create/update address
+            line_1_number_building: basePayload.line_1_number_building,
+            city: basePayload.city,
+            zip_postcode: basePayload.zip_postcode,
+            state_province_county: basePayload.state_province_county,
+            country: basePayload.country,
           };
-          // Remove confirmPassword and address fields before sending
-          delete customerData.confirmPassword;
-          delete customerData.line_1_number_building;
-          delete customerData.city;
-          delete customerData.zip_postcode;
-          delete customerData.state_province_county;
-          delete customerData.country;
-          
-          await apiService.customers.create(customerData);
+
+          try {
+            await apiService.customers.update(editingId, updatePayload);
+          } catch (err) {
+            throw err;
+          }
+        } else {
+          // Creation: ensure confirmPassword is ignored and required fields are present
+          const createPayload = { ...basePayload };
+          delete createPayload.confirmPassword;
+
+          await apiService.customers.create(createPayload);
         }
         refetch();
         setIsModalOpen(false);
@@ -141,6 +200,93 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
         } catch (error) {
           console.error('Error deleting customer:', error);
         }
+      }
+    };
+
+    // Open lessons modal for a customer (manager only)
+    const openLessonsForCustomer = async (customer: any) => {
+      setSelectedCustomer(customer);
+      setLessonModalOpen(true);
+
+      try {
+        const res = await apiService.lessons.getAll();
+        const lessons = res.data || [];
+        setCustomerLessons(lessons.filter((l: any) => l.customer_id === customer.customer_id));
+
+        // load available staff/instructors in same city
+        try {
+          const staffRes = await apiService.lessons.getAvailableInstructors(customer.customer_id);
+          setAvailableStaff(staffRes.data || []);
+        } catch (err) {
+          console.warn('Could not load available staff for customer', err);
+          setAvailableStaff([]);
+        }
+      } catch (err) {
+        console.error('Error loading lessons', err);
+        setCustomerLessons([]);
+      }
+    };
+
+    const handleCreateLesson = async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!selectedCustomer) return alert('No customer selected');
+      if (!newLesson.staff_id) return alert('Please select a staff/instructor');
+      if (!newLesson.date_time) return alert('Please select a date and time');
+      try {
+        const [lessonDate, lessonTime] = newLesson.date_time.split('T');
+        if (!lessonDate || !lessonTime) {
+          return alert('Please select a valid lesson date and time');
+        }
+        const durationValue = newLesson.lesson_duration && newLesson.lesson_duration.trim() ? newLesson.lesson_duration : '1';
+        const payload: any = {
+          customer_id: selectedCustomer.customer_id,
+          staff_id: newLesson.staff_id,
+          lesson_date: lessonDate,
+          lesson_time: lessonTime,
+          lesson_status: 'Scheduled',
+          lesson_duration: durationValue,
+        };
+        if (newLesson.price) payload.price = newLesson.price;
+
+        await apiService.lessons.create(payload);
+        const res = await apiService.lessons.getAll();
+        const lessons = res.data || [];
+        setCustomerLessons(lessons.filter((l: any) => l.customer_id === selectedCustomer.customer_id));
+        refetch();
+  setNewLesson({ date_time: '', staff_id: null, price: null, lesson_duration: '1' });
+        alert('Lesson created');
+      } catch (err: any) {
+        console.error('Error creating lesson', err);
+        alert(err.response?.data?.error || err.message || 'Failed to create lesson');
+      }
+    };
+
+    // Open payment modal
+    const openPaymentForCustomer = (customer: any) => {
+      setSelectedCustomer(customer);
+      setPaymentModalOpen(true);
+      setNewPayment(getFreshPaymentState());
+    };
+
+    const handleCreatePayment = async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!selectedCustomer) return alert('No customer selected');
+      if (!newPayment.amount_payment || newPayment.amount_payment <= 0) return alert('Enter a valid payment amount');
+      try {
+        const payload: any = {
+          customer_id: selectedCustomer.customer_id,
+          amount_payment: newPayment.amount_payment,
+          payment_method_code: newPayment.payment_method_code,
+          datetime_payment: newPayment.datetime_payment,
+        };
+    await apiService.payments.create(payload);
+    refetch();
+    setPaymentModalOpen(false);
+    setNewPayment(getFreshPaymentState());
+        alert('Payment recorded');
+      } catch (err: any) {
+        console.error('Error creating payment', err);
+        alert(err.response?.data?.error || err.message || 'Failed to create payment');
       }
     };
 
@@ -336,6 +482,34 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
                       <CheckCircle size={16} />
                       Edit
                     </button>
+
+                    {currentUserRole === 'manager' && (
+                      <>
+                        <Link
+                          to={`/customers/${customer._id}`}
+                          className="flex-1 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                        >
+                          <Info size={16} />
+                          Details
+                        </Link>
+                        <button
+                          onClick={() => openLessonsForCustomer(customer)}
+                          className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                        >
+                          <Users size={16} />
+                          Lessons
+                        </button>
+
+                        <button
+                          onClick={() => openPaymentForCustomer(customer)}
+                          className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
+                        >
+                          <CreditCard size={16} />
+                          Payment
+                        </button>
+                      </>
+                    )}
+
                     <button
                       onClick={() => handleDelete(customer)}
                       className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all font-semibold text-sm flex items-center justify-center gap-2"
@@ -429,19 +603,7 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
               />
             </div>
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Phone size={16} className="text-blue-600" />
-                Cell/Mobile Phone
-              </label>
-              <input
-                type="tel"
-                placeholder="Cell/Mobile Phone"
-                value={form.cell_mobile_phone_number}
-                onChange={(e) => setForm({ ...form, cell_mobile_phone_number: e.target.value })}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              />
-            </div>
+            
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
                 <Calendar size={16} className="text-blue-600" />
@@ -492,6 +654,7 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
                 value={form.amount_outstanding}
                 onChange={(e) => setForm({ ...form, amount_outstanding: parseFloat(e.target.value) })}
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                disabled={!editingId} // locked when creating new customers (server sets to $2500)
               />
             </div>
             
@@ -616,6 +779,151 @@ import { Plus, Users, TrendingUp, UserX, CheckCircle, User, Mail, Phone, Calenda
               <CheckCircle size={20} />
               {editingId ? 'Update Customer' : 'Create Customer'}
             </button>
+          </form>
+        </Modal>
+        {/* Lessons Modal (manager) */}
+        <Modal
+          isOpen={lessonModalOpen}
+          onClose={() => setLessonModalOpen(false)}
+          title={selectedCustomer ? `Lessons for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : 'Lessons'}
+        >
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-semibold">Existing Lessons</h4>
+              {customerLessons.length === 0 ? (
+                <p className="text-sm text-gray-500">No lessons found for this customer.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {customerLessons.map((l: any) => (
+                    <li key={l._id} className="p-2 border rounded bg-white">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="text-sm font-medium">{l.date_time || l.date || '—'}</div>
+                          <div className="text-xs text-gray-500">Staff: {l.staff_id || 'N/A'}</div>
+                        </div>
+                        <div className="text-sm font-semibold">{l.price ? `$${l.price}` : ''}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <hr />
+
+            <form onSubmit={handleCreateLesson} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium">Date & time</label>
+                <input
+                  type="datetime-local"
+                  value={newLesson.date_time || ''}
+                  onChange={(e) => setNewLesson({ ...newLesson, date_time: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Instructor</label>
+                <select
+                  value={newLesson.staff_id ?? ''}
+                  onChange={(e) => setNewLesson({ ...newLesson, staff_id: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="">Select instructor</option>
+                  {availableStaff.map((s: any) => (
+                    <option key={s.staff_id} value={s.staff_id}>{s.first_name} {s.last_name} ({s.nickname || s.staff_id})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Price (optional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newLesson.price ?? ''}
+                  onChange={(e) => setNewLesson({ ...newLesson, price: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Duration (hours)</label>
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={newLesson.lesson_duration ?? ''}
+                  onChange={(e) => setNewLesson({ ...newLesson, lesson_duration: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setLessonModalOpen(false)} className="px-4 py-2 rounded border">Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Create Lesson</button>
+              </div>
+            </form>
+          </div>
+        </Modal>
+
+        {/* Payment Modal (manager) */}
+        <Modal
+          isOpen={paymentModalOpen}
+          onClose={() => {
+            setPaymentModalOpen(false);
+            setNewPayment(getFreshPaymentState());
+          }}
+          title={selectedCustomer ? `Payment for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : 'Payment'}
+        >
+          <form onSubmit={handleCreatePayment} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium">Amount</label>
+              <input
+                type="number"
+                step="0.01"
+                value={newPayment.amount_payment ?? ''}
+                onChange={(e) => setNewPayment({ ...newPayment, amount_payment: e.target.value ? Number(e.target.value) : null })}
+                className="w-full px-3 py-2 border rounded"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Payment Method</label>
+              <select
+                value={newPayment.payment_method_code}
+                onChange={(e) => setNewPayment({ ...newPayment, payment_method_code: e.target.value })}
+                className="w-full px-3 py-2 border rounded"
+                required
+              >
+                <option value="Cash">Cash</option>
+                <option value="Card">Card</option>
+                <option value="Transfer">Bank Transfer</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Date</label>
+              <input
+                type="date"
+                value={newPayment.datetime_payment || ''}
+                onChange={(e) => setNewPayment({ ...newPayment, datetime_payment: e.target.value })}
+                className="w-full px-3 py-2 border rounded"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentModalOpen(false);
+                  setNewPayment(getFreshPaymentState());
+                }}
+                className="px-4 py-2 rounded border"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-white">Record Payment</button>
+            </div>
           </form>
         </Modal>
       </div>

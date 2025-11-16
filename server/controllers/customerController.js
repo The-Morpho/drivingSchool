@@ -101,14 +101,46 @@ export const create = async (req, res) => {
     // Get the next customer_id
     const lastCustomer = await getCollection('Customers').findOne({}, { sort: { customer_id: -1 } });
     const nextCustomerId = lastCustomer ? lastCustomer.customer_id + 1 : 1;
+    // Address fields may be sent at the top-level or included in other customer fields.
+    // Read them defensively from req.body first, then fall back to customerData.
+    const line_1_number_building = req.body.line_1_number_building ?? customerData.line_1_number_building ?? '';
+    const city = req.body.city ?? customerData.city ?? '';
+    const zip_postcode = req.body.zip_postcode ?? customerData.zip_postcode ?? '';
+    const state_province_county = req.body.state_province_county ?? customerData.state_province_county ?? '';
+    const country = req.body.country ?? customerData.country ?? '';
 
-    // Create Customer record with address reference and initialize amount_outstanding
+    // Remove possible address fields from the customer payload so they don't get embedded
+    const { line_1_number_building: _l, city: _ci, zip_postcode: _z, state_province_county: _s, country: _co, ...restCustomerData } = customerData;
+
+    // If address fields were supplied, create a separate Addresses document and use its numeric id
+    let finalCustomerAddressId = customer_address_id || null;
+    const hasAddressData = (line_1_number_building && line_1_number_building !== '') || (city && city !== '') || (zip_postcode && zip_postcode !== '') || (state_province_county && state_province_county !== '') || (country && country !== '');
+    if (hasAddressData) {
+      const lastAddress = await getCollection('Addresses').findOne({}, { sort: { address_id: -1 } });
+      const nextAddressId = lastAddress ? lastAddress.address_id + 1 : 1;
+
+      const addressDoc = {
+        address_id: nextAddressId,
+        line_1_number_building: line_1_number_building || '',
+        city: city || '',
+        zip_postcode: zip_postcode || '',
+        state_province_county: state_province_county || '',
+        country: country || ''
+      };
+
+      const addressResult = await getCollection('Addresses').insertOne(addressDoc);
+      if (addressResult.insertedId) {
+        finalCustomerAddressId = nextAddressId;
+      }
+    }
+
+    // Create Customer record with address reference and initialize amount_outstanding to $2500
     const customerDoc = {
       customer_id: nextCustomerId,
       email_address,
-      customer_address_id: customer_address_id || null,
-      amount_outstanding: inscription_price, // Initialize with inscription price
-      ...customerData
+      customer_address_id: finalCustomerAddressId,
+      amount_outstanding: 2500, // initialize to required default
+      ...restCustomerData
     };
 
     const customerResult = await getCollection('Customers').insertOne(customerDoc);
@@ -213,7 +245,7 @@ export const delete_ = async (req, res) => {
     
     // Delete the customer's address if they have one
     if (data.customer_address_id) {
-      await getCollection('Adresses').deleteOne({ address_id: data.customer_address_id });
+      await getCollection('Addresses').deleteOne({ address_id: data.customer_address_id });
     }
     
     // Delete all payments for this customer

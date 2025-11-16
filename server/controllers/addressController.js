@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 
 import { getDB } from '../db.js';
 
-const getCollection = () => getDB().collection('Adresses');
+const getCollection = () => getDB().collection('Addresses');
 
 export const getAll = async (req, res) => {
   try {

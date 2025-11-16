@@ -12,20 +12,38 @@ api.interceptors.request.use((config) => {
   if (userStr) {
     try {
       const user = JSON.parse(userStr);
-      // Validate that user has all required fields
-      if (user.account_id && user.username && user.role && user.userType) {
-        config.headers['x-account-id'] = user.account_id;
-        config.headers['x-username'] = user.username;
-        config.headers['x-user-role'] = user.role;
-        config.headers['x-user-type'] = user.userType; // Manager, Staff, or Customer
+
+      // Accept several possible shapes and normalize
+      const accountId = user.account_id || user.accountId || user.account || null;
+      const username = user.username || user.email || null;
+      const roleRaw = user.role || user.userRole || user.user_type || userTypeFromRole(user.userType) || '';
+      const userTypeRaw = user.userType || user.user_type || userTypeFromRole(roleRaw) || '';
+
+      // Normalize role: trim, toLower, and map synonyms to canonical backend/frontend roles
+      const role = normalizeRole(roleRaw);
+
+      // Normalize userType to capitalized form expected by some backend fields (Manager/Staff/Customer)
+      const userType = typeof userTypeRaw === 'string' && userTypeRaw
+        ? capitalize(userTypeRaw)
+        : (role ? capitalize(role) : '');
+
+      if (accountId && username && role && userType) {
+        config.headers['x-account-id'] = String(accountId);
+        config.headers['x-username'] = String(username);
+        // send lowercase role so backend permission checks (e.g., 'manager') work
+        config.headers['x-user-role'] = role;
+        // also include redundant role headers for backward compatibility with
+        // different backend checks (some code may look for 'x-role' or 'role')
+        config.headers['x-role'] = role;
+        config.headers['role'] = role;
+        // send capitalized userType for backward compatibility (e.g., 'Manager')
+        config.headers['x-user-type'] = userType;
       } else {
-        // User data is incomplete, redirect to login
-        console.error('Incomplete user data in localStorage');
+        console.error('Incomplete user data in localStorage', { accountId, username, role, userType });
         localStorage.removeItem('user');
         window.location.href = '/login';
       }
     } catch (err) {
-      // Invalid JSON in localStorage, redirect to login
       console.error('Invalid user data in localStorage:', err);
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -33,6 +51,48 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Debug outgoing requests for diagnosis
+api.interceptors.request.use((config) => {
+  try {
+    console.debug('[api] outgoing request', {
+      method: config.method,
+      url: config.baseURL ? `${config.baseURL}${config.url}` : config.url,
+      headers: config.headers,
+      // don't print body with password in logs; if present, print keys only
+      dataKeys: config.data ? Object.keys(config.data) : undefined,
+    });
+  } catch (e) {
+    // ignore logging errors
+  }
+  return config;
+});
+
+// Map various role strings to canonical frontend/backend roles
+function normalizeRole(roleRaw: any): string {
+  if (!roleRaw || typeof roleRaw !== 'string') return '';
+  const r = roleRaw.trim().toLowerCase();
+  if (r === 'admin' || r === 'administrator') return 'admin';
+  if (r === 'manager' || r === 'man' || r === 'management') return 'manager';
+  if (r === 'staff' || r === 'instructor' || r === 'teacher') return 'instructor';
+  if (r === 'customer' || r === 'user') return 'customer';
+  // fallback: return raw lowercase value
+  return r;
+}
+
+function capitalize(s: string) {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+function userTypeFromRole(roleRaw: any) {
+  if (!roleRaw || typeof roleRaw !== 'string') return '';
+  const r = roleRaw.toLowerCase();
+  if (r === 'manager' || r === 'admin') return 'Manager';
+  if (r === 'staff' || r === 'instructor') return 'Staff';
+  if (r === 'customer') return 'Customer';
+  return '';
+}
 
 // Handle 401 errors and redirect to login
 api.interceptors.response.use(
@@ -73,6 +133,7 @@ export const apiService = {
   lessons: {
     getAll: () => api.get('/lessons'),
     getById: (id: string) => api.get(`/lessons/${id}`),
+    getAvailableInstructors: (customerId: number | string) => api.get(`/lessons/available-instructors/${customerId}`),
     getStaffWithCustomers: () => api.get('/lessons/staff-with-customers'),
     getAssignmentsForCreation: () => api.get('/lessons/assignments/for-creation'),
     create: (data: any) => api.post('/lessons', data),

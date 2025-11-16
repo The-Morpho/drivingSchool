@@ -18,10 +18,15 @@ const router = express.Router();
 // Public route - Login (no auth required)
 router.post('/login', async (req, res) => {
   try {
+    // Debug: log incoming body to help diagnose login issues
+    console.debug('[api][login] incoming body:', req.body);
+    console.debug('[api][login] content-type:', req.headers['content-type']);
+
     const { username, password } = req.body;
 
     // Find account by username
-    const account = await Account.findOne({ username, is_active: true });
+  const account = await Account.findOne({ username, is_active: true });
+  console.debug('[api][login] account found:', !!account, account ? { username: account.username, account_id: account.account_id, is_active: account.is_active, role: account.role } : null);
     
     if (!account) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -29,6 +34,7 @@ router.post('/login', async (req, res) => {
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, account.password);
+    console.debug('[api][login] password match:', isValidPassword);
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -38,14 +44,32 @@ router.post('/login', async (req, res) => {
     let frontendRole = null;
 
     if (account.role === 'Manager') {
-      userDetails = await Staff.findOne({ staff_id: account.manager_id });
+      if (account.staff_id) {
+        // Try by ObjectId first
+        userDetails = await Staff.findById(account.staff_id);
+        if (!userDetails) {
+          userDetails = await Staff.findOne({ staff_id: account.staff_id });
+        }
+      }
       // Determine if manager is admin or manager based on username
       frontendRole = account.username === 'admin' ? 'admin' : 'manager';
     } else if (account.role === 'Staff') {
-      userDetails = await Staff.findOne({ staff_id: account.staff_id });
+      // account.staff_id may be an ObjectId ref to the Staff document or a numeric staff_id
+      if (account.staff_id) {
+        userDetails = await Staff.findById(account.staff_id);
+        if (!userDetails) {
+          userDetails = await Staff.findOne({ staff_id: account.staff_id });
+        }
+      }
       frontendRole = 'instructor';
     } else if (account.role === 'Customer') {
-      userDetails = await Customer.findOne({ customer_id: account.customer_id });
+      // account.customer_id may be an ObjectId ref or numeric customer_id
+      if (account.customer_id) {
+        userDetails = await Customer.findById(account.customer_id);
+        if (!userDetails) {
+          userDetails = await Customer.findOne({ customer_id: account.customer_id });
+        }
+      }
       frontendRole = 'customer';
     }
 

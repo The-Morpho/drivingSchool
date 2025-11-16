@@ -12,9 +12,14 @@ export const Login: React.FC = () => {
     setError('');
     setLoading(true);
 
+    // Debug: log form state and ensure submit prevented
+    console.debug('[login] handleSubmit called', { form });
+
     try {
       // Use the new login endpoint with username
+      console.debug('[login] sending login request', { username: form.username });
       const response = await apiService.login(form.username, form.password);
+      console.debug('[login] received response', response && response.status, response && response.data);
       const user = response.data;
 
       if (user) {
@@ -43,7 +48,7 @@ export const Login: React.FC = () => {
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-white opacity-5 rounded-full -ml-48 -mb-48"></div>
       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white opacity-5 rounded-full"></div>
       
-      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-md relative z-10">
+      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-xl relative z-10">
         <div className="flex justify-center mb-6">
           <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-5 rounded-2xl shadow-lg">
             <GraduationCap className="text-white" size={48} />
@@ -51,11 +56,7 @@ export const Login: React.FC = () => {
         </div>
         <h1 className="text-4xl font-bold text-center bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">Driving School</h1>
         <p className="text-center text-gray-600 mb-2 font-medium">Management System</p>
-        <div className="flex items-center justify-center gap-1 mb-8">
-          <Sparkles className="text-yellow-500" size={16} />
-          <p className="text-sm text-gray-500">Modern & Efficient</p>
-          <Sparkles className="text-yellow-500" size={16} />
-        </div>
+      
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
@@ -113,15 +114,15 @@ export const Login: React.FC = () => {
           <div className="space-y-2 text-xs text-gray-700">
             <div className="bg-white p-2 rounded-lg border border-blue-100">
               <div className="font-semibold text-purple-600">Manager</div>
-              <div className="font-mono">manager / manager123</div>
+              <div className="font-mono">robert / admin123</div>
             </div>
             <div className="bg-white p-2 rounded-lg border border-blue-100">
               <div className="font-semibold text-blue-600">Instructor</div>
-              <div className="font-mono">thompson.constantin / password123</div>
+              <div className="font-mono">temma / admin123</div>
             </div>
             <div className="bg-white p-2 rounded-lg border border-blue-100">
               <div className="font-semibold text-green-600">Customer</div>
-              <div className="font-mono">kozey.citlalli / password123</div>
+              <div className="font-mono">alice / admin123</div>
             </div>
           </div>
         </div>

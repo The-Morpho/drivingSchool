@@ -51,14 +51,34 @@ export const rolePermissions: Record<UserRole, string[]> = {
 };
 
 // Check if user has access to a specific route
-export const hasAccess = (userRole: UserRole, path: string): boolean => {
-  const permissions = rolePermissions[userRole];
+/**
+ * Normalize raw role strings (possibly coming from headers/localStorage) to the
+ * canonical UserRole used across the frontend.
+ */
+export function normalizeRole(raw?: string | null): UserRole | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const r = raw.trim().toLowerCase();
+  if (r === 'admin' || r === 'administrator') return 'admin';
+  if (r === 'manager' || r === 'management') return 'manager';
+  if (r === 'staff' || r === 'instructor' || r === 'teacher') return 'instructor';
+  if (r === 'customer' || r === 'user') return 'customer';
+  return null;
+}
+
+// Check if user has access to a specific route. Accepts either a canonical
+// UserRole value or a raw string (will be normalized).
+export const hasAccess = (userRole: UserRole | string | undefined | null, path: string): boolean => {
+  const canonical = typeof userRole === 'string' ? normalizeRole(userRole) : userRole;
+  if (!canonical) return false;
+  const permissions = rolePermissions[canonical];
   return permissions.some(route => path.startsWith(route));
 };
 
-// Get available routes for a user role
-export const getAvailableRoutes = (userRole: UserRole) => {
-  return rolePermissions[userRole];
+// Get available routes for a user role. Accepts canonical UserRole or raw string.
+export const getAvailableRoutes = (userRole: UserRole | string | undefined | null) => {
+  const canonical = typeof userRole === 'string' ? normalizeRole(userRole) : userRole;
+  if (!canonical) return [] as string[];
+  return rolePermissions[canonical];
 };
 
 // Role descriptions
