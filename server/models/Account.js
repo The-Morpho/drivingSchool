@@ -1,15 +1,15 @@
 import mongoose from 'mongoose';
 
-// Align Account with schema: use numeric foreign keys to Staff/Customer
+// Account can reference Staff/Customer by numeric IDs or by ObjectId
 const accountSchema = new mongoose.Schema({
   account_id: { type: Number, unique: true, required: true },
   username: { type: String, unique: true, required: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['Manager', 'Staff', 'Customer'], required: true },
 
-  // Numeric foreign keys (match Staff.staff_id, Customer.customer_id)
-  staff_id: { type: Number, index: true, sparse: true },
-  customer_id: { type: Number, index: true, sparse: true },
+  // Allow either Number (legacy) or ObjectId (preferred) for references
+  staff_id: { type: mongoose.Schema.Types.Mixed, index: true, sparse: true },
+  customer_id: { type: mongoose.Schema.Types.Mixed, index: true, sparse: true },
 
   is_active: { type: Boolean, default: true },
 }, { timestamps: true });

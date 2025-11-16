@@ -15,7 +15,12 @@ export const getAll = async (req, res) => {
       // Fetch account status for each customer
       const customersWithStatus = await Promise.all(
         customers.map(async (customer) => {
-          const account = await getCollection('Account').findOne({ customer_id: customer.customer_id });
+          const account = await getCollection('Account').findOne({
+            $or: [
+              { customer_id: customer.customer_id },
+              { customer_id: customer._id }
+            ]
+          });
           return {
             ...customer,
             isActive: account ? account.is_active : true
@@ -161,13 +166,13 @@ export const create = async (req, res) => {
     const lastAccount = await getCollection('Account').findOne({}, { sort: { account_id: -1 } });
     const nextAccountId = lastAccount ? lastAccount.account_id + 1 : 1;
 
-    // Create Account record with numeric customer_id
+    // Create Account record with ObjectId reference to Customer
     const accountDoc = {
       account_id: nextAccountId,
       username: accountUsername,
       password: hashedPassword,
       role: 'Customer',
-      customer_id: nextCustomerId, // Use numeric ID
+      customer_id: customerResult.insertedId, // Use ObjectId of created customer
       is_active: isActive
     };
 
@@ -240,13 +245,23 @@ export const delete_ = async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Not found' });
     
     // Get customer's account to find username
-    const account = await getCollection('Account').findOne({ customer_id: data.customer_id });
+    const account = await getCollection('Account').findOne({
+      $or: [
+        { customer_id: data.customer_id },
+        { customer_id: data._id }
+      ]
+    });
     const customerUsername = account ? account.username : null;
     
     // Chat feature removed: skip chatroom/messages cleanup
     
     // Delete the account
-    await getCollection('Account').deleteOne({ customer_id: data.customer_id });
+    await getCollection('Account').deleteOne({
+      $or: [
+        { customer_id: data.customer_id },
+        { customer_id: data._id }
+      ]
+    });
     
     // Delete the customer's address if they have one
     if (data.customer_address_id) {

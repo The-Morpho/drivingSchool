@@ -45,9 +45,10 @@ router.post('/login', async (req, res) => {
 
     if (account.role === 'Manager') {
       if (account.staff_id) {
-        // Try by ObjectId first
-        userDetails = await Staff.findById(account.staff_id);
-        if (!userDetails) {
+        // staff_id may be ObjectId (preferred) or numeric (legacy)
+        if (typeof account.staff_id === 'object') {
+          userDetails = await Staff.findById(account.staff_id);
+        } else {
           userDetails = await Staff.findOne({ staff_id: account.staff_id });
         }
       }
@@ -56,8 +57,9 @@ router.post('/login', async (req, res) => {
     } else if (account.role === 'Staff') {
       // account.staff_id may be an ObjectId ref to the Staff document or a numeric staff_id
       if (account.staff_id) {
-        userDetails = await Staff.findById(account.staff_id);
-        if (!userDetails) {
+        if (typeof account.staff_id === 'object') {
+          userDetails = await Staff.findById(account.staff_id);
+        } else {
           userDetails = await Staff.findOne({ staff_id: account.staff_id });
         }
       }
@@ -65,8 +67,9 @@ router.post('/login', async (req, res) => {
     } else if (account.role === 'Customer') {
       // account.customer_id may be an ObjectId ref or numeric customer_id
       if (account.customer_id) {
-        userDetails = await Customer.findById(account.customer_id);
-        if (!userDetails) {
+        if (typeof account.customer_id === 'object') {
+          userDetails = await Customer.findById(account.customer_id);
+        } else {
           userDetails = await Customer.findOne({ customer_id: account.customer_id });
         }
       }

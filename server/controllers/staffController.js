@@ -127,7 +127,7 @@ export const create = async (req, res) => {
       username: nickname,
       password: hashedPassword,
       role: role, // Use the provided role (Staff or Manager)
-      staff_id: nextStaffId,
+      staff_id: staffResult.insertedId, // Use ObjectId of created staff
       is_active: isActive
     };
 
@@ -181,13 +181,23 @@ export const delete_ = async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Not found' });
     
     // Get staff's account to find username
-    const account = await getCollection('Account').findOne({ staff_id: data.staff_id });
+    const account = await getCollection('Account').findOne({
+      $or: [
+        { staff_id: data.staff_id },
+        { staff_id: data._id }
+      ]
+    });
     const staffUsername = account ? account.username : null;
     
     // Chat feature removed: skip chatroom/messages cleanup
     
     // Delete the account
-    await getCollection('Account').deleteOne({ staff_id: data.staff_id });
+    await getCollection('Account').deleteOne({
+      $or: [
+        { staff_id: data.staff_id },
+        { staff_id: data._id }
+      ]
+    });
     
     // Delete the staff's address if they have one
     if (data.staff_address_id) {
@@ -227,8 +237,12 @@ export const getMyCustomers = async (req, res) => {
     }).toArray();
 
     // Fetch customer account details for usernames
+    const customerObjectIds = customers.map(c => c._id);
     const accounts = await getCollection('Account').find({
-      customer_id: { $in: customerIds }
+      $or: [
+        { customer_id: { $in: customerIds } },
+        { customer_id: { $in: customerObjectIds } }
+      ]
     }).toArray();
 
     res.json({
@@ -236,7 +250,10 @@ export const getMyCustomers = async (req, res) => {
       total_customers: customers.length,
       customers: customers.map(customer => {
         // Find the account for this customer to get their username
-        const account = accounts.find(acc => acc.customer_id === customer.customer_id);
+        const account = accounts.find(acc => (
+          (typeof acc.customer_id === 'object' && acc.customer_id.toString() === customer._id.toString()) ||
+          acc.customer_id === customer.customer_id
+        ));
         return {
           customer_id: customer.customer_id,
           first_name: customer.first_name,
