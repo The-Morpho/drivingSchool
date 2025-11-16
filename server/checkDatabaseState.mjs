@@ -12,8 +12,8 @@ async function checkDatabaseState() {
     
     console.log('\n📊 Database State:');
     
-    // Check all collections and their counts
-    const collections = ['Account', 'Staff', 'Customers', 'Lessons', 'chatrooms'];
+    // Check all collections and their counts (chat features removed)
+    const collections = ['Account', 'Staff', 'Customers', 'Lessons'];
     
     for (const collectionName of collections) {
       const count = await db.collection(collectionName).countDocuments();
@@ -28,40 +28,7 @@ async function checkDatabaseState() {
       }
     }
     
-    // Check specifically for lessons that need chat rooms
-    console.log('\n🎯 Lessons without Chat Rooms:');
-    const lessons = await db.collection('Lessons').find({}).toArray();
-    
-    for (const lesson of lessons) {
-      console.log(`\nLesson ${lesson.lesson_id}:`);
-      console.log(`  Staff ID: ${lesson.staff_id} (type: ${typeof lesson.staff_id})`);
-      console.log(`  Customer ID: ${lesson.customer_id} (type: ${typeof lesson.customer_id})`);
-      
-      // Try to find staff account
-      const staffAccount = await db.collection('Account').findOne({ 
-        $or: [
-          { staff_id: lesson.staff_id },
-          { staff_id: lesson.staff_id.toString() }
-        ]
-      });
-      
-      // Try to find customer account  
-      const customerAccount = await db.collection('Account').findOne({ 
-        $or: [
-          { customer_id: lesson.customer_id },
-          { customer_id: lesson.customer_id.toString() }
-        ]
-      });
-      
-      console.log(`  Staff Account: ${staffAccount ? staffAccount.username : 'Not found'}`);
-      console.log(`  Customer Account: ${customerAccount ? customerAccount.username : 'Not found'}`);
-      
-      if (staffAccount && customerAccount) {
-        const room_id = `${staffAccount.username}_${customerAccount.username}`;
-        const existingRoom = await db.collection('chatrooms').findOne({ room_id });
-        console.log(`  Chat Room: ${existingRoom ? 'EXISTS' : 'MISSING'}`);
-      }
-    }
+    // Chatroom checks removed; feature deprecated.
     
   } catch (error) {
     console.error('❌ Error:', error.message);

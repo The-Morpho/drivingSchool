@@ -266,7 +266,7 @@ export const Lessons: React.FC = () => {
           price: form.price,
         });
 
-        setSuccessMessage(`✅ Lesson created successfully! ${response.data?.chatRoomCreated ? 'Chat room created between customer and instructor.' : ''}`);
+        setSuccessMessage('✅ Lesson created successfully!');
         
         setTimeout(() => {
           setIsModalOpen(false);

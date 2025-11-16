@@ -44,10 +44,6 @@ customerSchema.virtual('payments', {
 });
 
 // Virtual populate for chat rooms
-customerSchema.virtual('chatRooms', {
-  ref: 'ChatRoom',
-  localField: 'customer_id',
-  foreignField: 'customer_id'
-});
+// Chat feature removed; chatRooms virtual is no longer needed
 
 export default mongoose.model('Customer', customerSchema, 'Customers');

@@ -33,7 +33,7 @@ export const Navbar: React.FC = () => {
     { to: '/payments', label: 'Payments', path: '/payments' },
     { to: '/vehicles', label: 'Vehicles', path: '/vehicles' },
     { to: '/addresses', label: 'Addresses', path: '/addresses' },
-    { to: '/chat', label: 'Chat', path: '/chat' },
+    // Chat feature removed
   ];
 
   // Filter links based on user role

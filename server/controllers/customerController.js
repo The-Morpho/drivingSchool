@@ -42,7 +42,16 @@ export const getAll = async (req, res) => {
       if (!account || !account.customer_id) {
         return res.json([]);
       }
-      const customerRecord = await getCollection('Customers').findOne({ customer_id: account.customer_id });
+      // Resolve numeric customer_id when Account stores an ObjectId reference
+      let numericCustomerId = account.customer_id;
+      if (typeof account.customer_id === 'object') {
+        const customerDoc = await getCollection('Customers').findOne({ _id: account.customer_id });
+        if (!customerDoc) {
+          return res.json([]);
+        }
+        numericCustomerId = customerDoc.customer_id;
+      }
+      const customerRecord = await getCollection('Customers').findOne({ customer_id: numericCustomerId });
       data = customerRecord ? [customerRecord] : [];
     } else {
       data = [];
@@ -234,20 +243,7 @@ export const delete_ = async (req, res) => {
     const account = await getCollection('Account').findOne({ customer_id: data.customer_id });
     const customerUsername = account ? account.username : null;
     
-    // Delete all chat rooms and messages for this customer
-    if (customerUsername) {
-      // Find all chat rooms for this customer
-      const chatRooms = await getCollection('chatrooms').find({ customer_username: customerUsername }).toArray();
-      const roomIds = chatRooms.map(room => room.room_id);
-      
-      // Delete all messages in these rooms
-      if (roomIds.length > 0) {
-        await getCollection('messages').deleteMany({ room_id: { $in: roomIds } });
-      }
-      
-      // Delete the chat rooms
-      await getCollection('chatrooms').deleteMany({ customer_username: customerUsername });
-    }
+    // Chat feature removed: skip chatroom/messages cleanup
     
     // Delete the account
     await getCollection('Account').deleteOne({ customer_id: data.customer_id });
@@ -263,7 +259,7 @@ export const delete_ = async (req, res) => {
     // Delete the customer record
     await getCollection('Customers').deleteOne({ _id: new ObjectId(req.params.id) });
     
-    res.json({ message: 'Customer deleted successfully (including account, address, payments, and chat rooms)' });
+    res.json({ message: 'Customer deleted successfully (including account, address, and payments)' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -279,9 +275,19 @@ export const getMyStaff = async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    // Resolve numeric customer_id if Account stores an ObjectId
+    let numericCustomerId = account.customer_id;
+    if (typeof account.customer_id === 'object') {
+      const customerDoc = await getCollection('Customers').findOne({ _id: account.customer_id });
+      if (!customerDoc) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+      numericCustomerId = customerDoc.customer_id;
+    }
+
     // Get all lessons for this customer to find their assigned staff
     const lessons = await getCollection('Lessons').find({ 
-      customer_id: account.customer_id 
+      customer_id: numericCustomerId 
     }).toArray();
 
     // Get unique staff IDs

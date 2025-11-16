@@ -11,7 +11,6 @@ import { Payments } from './pages/Payments';
 import { Addresses } from './pages/Addresses';
 import { Login } from './pages/Login';
 import { Profile } from './pages/Profile';
-import { Chat } from './pages/Chat';
 import { hasAccess, UserRole } from './utils/rolePermissions';
 
 function App() {
@@ -154,14 +153,7 @@ function App() {
                         } 
                       />
                       
-                      <Route 
-                        path="/chat" 
-                        element={
-                          <ProtectedRoute path="/chat">
-                            <Chat />
-                          </ProtectedRoute>
-                        } 
-                      />
+                      { /* Chat feature removed */ }
                     </Routes>
                   </div>
                 </div>

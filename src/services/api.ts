@@ -15,17 +15,29 @@ api.interceptors.request.use((config) => {
 
       // Accept several possible shapes and normalize
       const accountId = user.account_id || user.accountId || user.account || null;
-      const username = user.username || user.email || null;
       const roleRaw = user.role || user.userRole || user.user_type || userTypeFromRole(user.userType) || '';
-      const userTypeRaw = user.userType || user.user_type || userTypeFromRole(roleRaw) || '';
-
-      // Normalize role: trim, toLower, and map synonyms to canonical backend/frontend roles
       const role = normalizeRole(roleRaw);
-
+      const userTypeRaw = user.userType || user.user_type || userTypeFromRole(roleRaw) || '';
       // Normalize userType to capitalized form expected by some backend fields (Manager/Staff/Customer)
       const userType = typeof userTypeRaw === 'string' && userTypeRaw
         ? capitalize(userTypeRaw)
         : (role ? capitalize(role) : '');
+
+      // Determine the correct identifier to use in `x-username` based on role.
+      // Backend expects:
+      //  - Instructor/Staff: staff `nickname`
+      //  - Customer: customer's email (email_address)
+      //  - Manager/Admin: account username
+      let username: string | null = null;
+      if (role === 'instructor' || role === 'staff') {
+        // Backend resolves instructors via Staff.nickname
+        username = user.nickname || user.username || user.email || null;
+      } else if (role === 'customer') {
+        // Backend looks up Account by account username for customers
+        username = user.username || user.email_address || user.email || null;
+      } else {
+        username = user.username || user.email || null;
+      }
 
       if (accountId && username && role && userType) {
         config.headers['x-account-id'] = String(accountId);

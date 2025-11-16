@@ -287,7 +287,7 @@ interface CustomerForm {
           setCustomerLessons(lessons.filter((l: any) => l.customer_id === selectedCustomer.customer_id));
           refetch();
         setNewLesson({ date_time: '', staff_id: null, price: null, lesson_duration: '1', vehicle_id: null, lesson_status: 'Scheduled' });
-        alert('Lesson created successfully! A chat room has been created between the customer and instructor.');
+        alert('Lesson created successfully!');
       } catch (err: any) {
         console.error('Error creating lesson', err);
         alert(err.response?.data?.error || err.message || 'Failed to create lesson');

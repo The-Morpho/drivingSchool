@@ -184,20 +184,7 @@ export const delete_ = async (req, res) => {
     const account = await getCollection('Account').findOne({ staff_id: data.staff_id });
     const staffUsername = account ? account.username : null;
     
-    // Delete all chat rooms and messages for this staff member
-    if (staffUsername) {
-      // Find all chat rooms for this staff member
-      const chatRooms = await getCollection('chatrooms').find({ staff_username: staffUsername }).toArray();
-      const roomIds = chatRooms.map(room => room.room_id);
-      
-      // Delete all messages in these rooms
-      if (roomIds.length > 0) {
-        await getCollection('messages').deleteMany({ room_id: { $in: roomIds } });
-      }
-      
-      // Delete the chat rooms
-      await getCollection('chatrooms').deleteMany({ staff_username: staffUsername });
-    }
+    // Chat feature removed: skip chatroom/messages cleanup
     
     // Delete the account
     await getCollection('Account').deleteOne({ staff_id: data.staff_id });
@@ -210,7 +197,7 @@ export const delete_ = async (req, res) => {
     // Delete the staff record
     await getCollection('Staff').deleteOne({ _id: new ObjectId(req.params.id) });
     
-    res.json({ message: 'Staff deleted successfully (including account, address, and chat rooms)' });
+    res.json({ message: 'Staff deleted successfully (including account and address)' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

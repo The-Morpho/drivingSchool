@@ -19,7 +19,6 @@ export const rolePermissions: Record<UserRole, string[]> = {
     '/payments',
     '/addresses',
     '/assignments',
-    '/chat',
     '/profile'
   ],
   manager: [
@@ -30,7 +29,6 @@ export const rolePermissions: Record<UserRole, string[]> = {
     '/lessons',
     '/payments',
     '/assignments',
-    '/chat',
     '/profile'
   ],
   instructor: [
@@ -38,14 +36,12 @@ export const rolePermissions: Record<UserRole, string[]> = {
     '/lessons',
     '/customers',
     '/vehicles',
-    '/chat',
     '/profile'
   ],
   customer: [
     '/dashboard',
     '/lessons',
     '/payments',
-    '/chat',
     '/profile'
   ]
 };

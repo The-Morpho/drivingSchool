@@ -21,8 +21,8 @@ export const getAll = async (req, res) => {
       // customer_id might be an ObjectId or numeric - resolve to numeric
       let numericCustomerId = account.customer_id;
       if (typeof account.customer_id === 'object') {
-        // It's an ObjectId reference - lookup the actual customer document
-        const customer = await getCollection('Customers').findOne({ customer_id: account.customer_id });
+        // It's an ObjectId reference - lookup the actual customer document by _id
+        const customer = await getCollection('Customers').findOne({ _id: account.customer_id });
         if (!customer) {
           return res.json([]);
         }
@@ -212,65 +212,11 @@ export const create = async (req, res) => {
       );
     }
     
-    // Create chat room between staff and customer if it doesn't exist
-    let chatRoomCreated = false;
-    if (lessonDoc.staff_id && lessonDoc.customer_id) {
-      try {
-        const room_id = `${lessonDoc.staff_id}_${lessonDoc.customer_id}`;
-        console.log('Proposed room ID:', room_id);
-        
-        // Check if room already exists
-        const existingRoom = await getCollection('chatrooms').findOne({ room_id });
-        
-        if (!existingRoom) {
-          // Get staff and customer details to validate they exist
-          const staff = await getCollection('Staff').findOne({ 
-            $or: [
-              { staff_id: lessonDoc.staff_id },
-              { staff_id: parseInt(lessonDoc.staff_id) }
-            ]
-          });
-          const customer = await getCollection('Customers').findOne({ 
-            $or: [
-              { customer_id: lessonDoc.customer_id },
-              { customer_id: parseInt(lessonDoc.customer_id) }
-            ]
-          });
-          
-          console.log('Staff found:', !!staff, staff?.first_name, staff?.last_name);
-          console.log('Customer found:', !!customer, customer?.first_name, customer?.last_name);
-          
-          if (staff && customer) {
-            // Create chat room using only fields defined in the ChatRoom schema
-            const chatRoomDoc = {
-              room_id,
-              staff_id: parseInt(lessonDoc.staff_id),
-              customer_id: parseInt(lessonDoc.customer_id),
-              created_at: new Date(),
-              updated_at: new Date()
-            };
-            
-            await getCollection('chatrooms').insertOne(chatRoomDoc);
-            chatRoomCreated = true;
-            console.log(`✅ Chat room created successfully: ${room_id}`);
-          } else {
-            console.warn(`❌ Could not find staff (ID: ${lessonDoc.staff_id}) or customer (ID: ${lessonDoc.customer_id}) for chat room creation`);
-          }
-        } else {
-          console.log(`ℹ️ Chat room already exists: ${room_id}`);
-          chatRoomCreated = true; // Exists already
-        }
-      } catch (chatError) {
-        // Log error but don't fail the lesson creation
-        console.error('❌ Error creating chat room:', chatError);
-      }
-    }
-    
+    // Chatroom feature removed: no chatroom creation alongside lesson creation
     res.status(201).json({ 
       _id: result.insertedId, 
       ...lessonDoc,
-      message: `Lesson created successfully. ${chatRoomCreated ? 'Chat room created between customer and instructor.' : 'Chat room creation skipped or failed.'}`,
-      chatRoomCreated
+      message: 'Lesson created successfully.'
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
